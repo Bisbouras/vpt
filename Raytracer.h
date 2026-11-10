@@ -7,6 +7,8 @@
 #include <limits>
 #include <glm/gtc/constants.hpp>
 #include <random>
+#include <atomic>
+#include <iostream>
 
 const float EPS = 1e-4f;
 const float INF = std::numeric_limits<float>::max();
@@ -862,14 +864,12 @@ vec3 pathTrace(const Ray& primary, const BVH& bvh, const Scene& sc, std::mt19937
     return L;
 }
 
-void render(const Scene& sc, unsigned char* pixels) {
-    BVH bvh;
-    bvh.build(sc);
-    std::cout << "BVH: " << bvh.nodes.size() << " nodes, "
-              << bvh.prims.size() << " prims" << std::endl;
-
+// accum gets the linear colour before clamp and gamma, pixels the 8-bit output
+void render(const Scene& sc, const BVH& bvh, unsigned char* pixels, vec3* accum, bool quiet) {
     int total = sc.w * sc.h;
-    int done = 0;
+    std::atomic<int> done(0);
+    // seed - per-pixel seeds of different seed values never overlap
+    unsigned seedBase = sc.seed * (unsigned)total;
 
     #pragma omp parallel for schedule(dynamic, 1)
     for (int j = 0; j < sc.h; j++) {
@@ -878,7 +878,7 @@ void render(const Scene& sc, unsigned char* pixels) {
             vec3 col(0);
 
             if (sc.integrator == PATHTRACER) {
-                std::mt19937 rng(j * sc.w + i);
+                std::mt19937 rng(seedBase + (unsigned)(j * sc.w + i));
                 std::uniform_real_distribution<float> U(0.0f, 1.0f);
                 vec3 acc(0);
                 for (int s = 0; s < sc.spp; s++) {
@@ -912,12 +912,13 @@ void render(const Scene& sc, unsigned char* pixels) {
                     if (sc.integrator == ANALYTICDIRECT) {
                         col = shadeAnalytic(h, sc);
                     } else {
-                        std::mt19937 rng(j * sc.w + i);
+                        std::mt19937 rng(seedBase + (unsigned)(j * sc.w + i));
                         col = shadeDirect(h, ray, bvh, sc, rng);
                     }
                 }
             }
 
+            accum[j * sc.w + i] = col;
             col = glm::clamp(col, 0.0f, 1.0f);
 
             // gamma correction at output time only (default gamma = 1 is a no-op)
@@ -933,11 +934,12 @@ void render(const Scene& sc, unsigned char* pixels) {
             pixels[idx + 1] = (unsigned char)(col.g * 255);
             pixels[idx + 2] = (unsigned char)(col.b * 255);
 
-            done++;
-            int pct = (done * 100) / total;
-            if (pct % 10 == 0 && done % sc.w == 0)
+            int d = ++done;
+            if (quiet) continue;
+            int pct = (int)((d * 100LL) / total);
+            if (pct % 10 == 0 && d % sc.w == 0)
                 std::cout << "\r" << pct << "%" << std::flush;
         }
     }
-    std::cout << "\r100%" << std::endl;
+    if (!quiet) std::cout << "\r100%" << std::endl;
 }

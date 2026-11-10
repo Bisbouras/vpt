@@ -2,3 +2,10 @@ out/
 .vs/
 *.exe
 *.pdb
+
+# reference images and noise floor (scripts/refs.py)
+refs/
+# float renders, and renders written to the repo root
+*.pfm
+/*.png
+__pycache__/

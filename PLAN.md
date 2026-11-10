@@ -2,7 +2,7 @@
 
 Working plan for porting the VPT path tracer to CUDA: what the code looks like today, the design decisions, each phase's tasks, how each step is checked, and the risks.
 
-Status: **Phase 0.5 (plan and toolchain) done 2026-11-09. Next: Phase 1.** Phases run one at a time, with a review before each.
+Status: **Phase 1 done (2026-11-09): harness, references, validated statistical check, CPU timings (section 8). Next: Phase 2.** Phases run one at a time, with a review before each.
 
 ---
 
@@ -79,7 +79,7 @@ Goal: measure and compare before changing anything that renders. **No change in 
 Hand-written argument parsing in `main.cpp`, no dependency:
 - `--spp N` overrides the scene's spp
 - `--out path.png` overrides the output path. The PFM goes next to it, as `path.pfm`
-- `--seed N` adds N to the per-pixel seed (default 0 gives today's images bit for bit). This is how the **noise floor** is measured (1.5).
+- `--seed N` offsets the per-pixel seed by `N·w·h` (default 0 gives today's images bit for bit). This is how the **noise floor** is measured (1.5).
 - `--quiet` turns off the progress output for benchmark runs
 - (Phase 3) `--gpu`
 
@@ -94,6 +94,8 @@ Hand-written argument parsing in `main.cpp`, no dependency:
 - Add an accumulation buffer `std::vector<vec3>` (linear, before clamping) next to the 8-bit buffer. `render()` writes both. (The real split into `renderPixel` + output pass comes in Phase 2. This is the minimum needed.)
 - Write the PFM: header `PF\n<w> <h>\n-1.0\n` (negative = little-endian), **rows stored bottom to top**, 3 × float32 per pixel. A small `writePFM` in a new `Image.h`.
 
+**1.1–1.3 result:** all 8 benchmark + correctness scenes at 8 spp, run through `--spp`/`--out`, give PNGs byte-identical to the unchanged build. Rebuilding the 8-bit image from the PFM with clamp/gamma/truncation matches exactly for gamma-1 scenes. Gamma-2.2 scenes differ by 1 level in 5–13 pixels, from numpy `pow` vs MSVC `powf` rounding, so the data and row order are right. `--seed 0` reproduces the original image and `--seed 1` differs. Seed `s` uses per-pixel seeds `s·w·h + pixel`, so different seeds never share a stream.
+
 ### 1.4 Benchmark and correctness sets
 
 Benchmark set (timed):
@@ -101,11 +103,11 @@ Benchmark set (timed):
 | Scene | Res | Scene spp | Bench spp | What it stresses |
 |---|---|---|---|---|
 | `scenes/cornellScatter.test` | 480² | 128 | 128 | scattering medium, MIS in volume |
-| `scenes/hero.test` | 800² | 4096 | ~64–256 | medium + GGX + tiny bright light (fireflies) |
+| `scenes/hero.test` | 800² | 4096 | 128 | medium + GGX + tiny bright light (fireflies) |
 | `scenes/dragon.test` | 640×480 | 128 | 128 | 100k tris, BVH traversal, depth 5 |
-| `scenes/mis.test` | 768×512 | 32 | 32 | 5 lights, direct only (depth 1), NEE cost |
+| `scenes/mis.test` | 768×512 | 32 | 128 | 5 lights, direct only (depth 1), NEE cost |
 
-Pick bench spp so each CPU run takes roughly 10–60 s; settle it once 1.2 gives numbers.
+**Bench spp is 128 for every scene.** The 8-spp timings put each CPU run at about 5–15 s, long enough to time reliably and still long enough for a meaningful GPU timing. A full bench pass (1 warm-up + 5 runs, 4 scenes) takes about 4 minutes.
 
 Correctness set (not timed, low spp, covers the code paths the benchmarks miss): `cornellBRDF` (NEE on + Phong, `shadeDirect`), `cornellCosine` (cosine sampling), `cornellFog` (absorption only), `ggx` (transformed spheres, GGX + Phong).
 
@@ -113,27 +115,49 @@ Correctness set (not timed, low spp, covers the code paths the benchmarks miss):
 Inputs: test PFM and reference PFM (plus the scene's gamma). Outputs:
 - **RMSE** and **relMSE** (`mean((t-r)² / (r² + 1e-2))`, so fireflies in dark areas don't dominate) on linear values
 - **mean LDR-FLIP**, after applying the renderer's own clamp + gamma to both images in the script (no 8-bit rounding)
-- an optional FLIP error-map PNG for the writeup
+- an optional FLIP error map (`--flipmap`), written as `.ppm` so the scripts need nothing beyond numpy and flip-evaluator
 
-**Pass rule (statistical):** for scene X at spp N, compute `err(CPU seed 0 vs ref)` and `err(CPU seed 1 vs ref)`. Their spread is the **noise floor**. A candidate (Phase 2 RNG, GPU) passes if its error against the reference is within that floor, with a small margin fixed once the floor has been measured. That replaces guessing absolute thresholds.
+Shared code (scene sets, spp constants, renderer lookup, PFM reading, metrics) lives in `scripts/vpt.py`.
+
+Plus two **bias metrics** on 16×16-pixel block means. Averaging 256 pixels shrinks the noise about 16×, while a bias survives:
+- **bias**: signed mean relative error of the blocks (overall brightness bias)
+- **blockrel**: mean squared relative error of the blocks (bias in one region)
+
+Both drop the worst 1% of blocks, and relMSE drops the worst 0.1% of pixels, so fireflies don't dominate.
+
+**Pass rule (statistical):** for each scene, render with **16 seeds** (0–15) at the stat spp (64) and measure every metric against the reference. That spread is the **noise floor**, stored in `refs/floor.json` by `scripts/refs.py --floor`. A candidate (Phase 2 RNG, GPU) passes a scene if it has no NaN/inf pixels and every metric is within the floor: relMSE and blockrel at most mean + 4σ, |bias − mean| at most 4σ, FLIP at most mean + 5σ (its seed-to-seed distribution has heavier tails). That replaces guessing absolute thresholds.
+
+**How the rule was arrived at (2026-11-09):**
+- *First version* (8 seeds, untrimmed relMSE + FLIP, mean + 3σ): relMSE varied up to 2400× between seeds on firefly scenes (`cornellBRDF` 0.65 → 1572), which made it useless. The unchanged CPU build failed 2 of 8 scenes with a fresh seed, because 8 seeds underestimated FLIP's spread about 2.5× (`ggx`). And on noisy scenes, even a 5% brightness error passed.
+- *Final version*, validated with the unchanged CPU build: **0 of 64** fresh-seed renders (seeds 100–107 × 8 scenes) fail. With deliberate errors injected into a seed-100 render:
+
+  | Error injected | Caught on |
+  |---|---|
+  | whole image ×1.01, ×1.02, ×0.98, ×1.05 | 7 of 8 scenes (all except `hero`); `hero` catches ×0.98 and ×1.05 |
+  | top-left quarter ×1.05, ×1.10 | 7 of 8 scenes (all except `hero`) |
+
+  On the noisy `cornellBRDF` and `cornellCosine`, only the block metrics catch these errors. FLIP and relMSE alone would miss them all.
+- **Known limit:** `hero` keeps fireflies even in its 4096-spp reference, so its check only catches errors of about 5% or more. The same medium and volume-MIS code runs in `cornellScatter`, which catches 1%.
 
 ### 1.6 References
-- Render each benchmark and correctness scene on the CPU at **≥ 32× its bench spp** (more if time allows) with the Phase 1 build, into `refs/<scene>.pfm`. Record the spp and render time of each in `refs/README.txt` (also git-ignored).
+- `scripts/refs.py` renders each benchmark and correctness scene at **4096 spp** (32× bench spp, 64× stat spp) into `refs/<scene>.pfm`, and logs spp, seed, time and commit to `refs/README.txt` (git-ignored with the rest of `refs/`).
+- Rendered 2026-11-09 in 27 min total (cornellScatter 152 s, hero 358 s, dragon 447 s, mis 208 s, the four correctness scenes 91–145 s each). The machine wasn't idle, so these times are only a rough guide.
+- **References use seed 1000.** With seed 0, a 64-spp test would reuse the reference's first 64 samples per pixel (same mt19937 stream) and look better than it is.
 - The references come from the **Phase 1** code (mt19937). They're the fixed point for everything after.
 
 ### 1.7 Benchmark script — `scripts/bench.py`
-Runs the executable over the benchmark set, 1 warm-up + 5 timed runs each, takes the median, and appends to `bench/results.csv` (`date, commit, backend, scene, w, h, spp, parse_ms, bvh_ms, render_ms, msamples_s`). The commit hash comes from `git rev-parse --short HEAD` (read-only). `bench/` stays in git, since the CSV is the raw data behind the writeup.
+Runs the executable over the benchmark set, 1 warm-up + 5 timed runs each, takes the median, and appends to `bench/results.csv` (`date, commit, backend, label, scene, w, h, spp, threads, runs, parse_ms, bvh_ms, render_ms, render_min_ms, render_max_ms, msamples_s`). `--label` notes the change being measured, and `--extra "--gpu"` will select the GPU in Phase 3. The commit hash comes from `git rev-parse --short HEAD` (read-only). `bench/` stays in git, since the CSV is the raw data behind the writeup.
 
 ### 1.8 Check script — `scripts/check.py`
-Runs the benchmark + correctness sets at low spp and does one of two checks:
-- `--save-baseline DIR` then `--exact DIR`: byte-compares each PFM with the saved one (the [exact] check in Phase 2)
-- `--stat`: runs `compare.py` against `refs/` and applies the noise-floor rule (the [stat] check in Phases 2–4)
+Runs the benchmark + correctness sets and does one of two checks:
+- `--save-baseline DIR` then `--exact DIR`: renders at 8 spp and byte-compares each PNG and PFM with the saved ones (the [exact] check in Phase 2). About 5 s for all 8 scenes.
+- `--stat`: renders at 64 spp with seed 0 and applies the noise-floor rule against `refs/` (the [stat] check in Phases 2–4)
 
 Prints one pass/fail line per scene and exits non-zero on failure. This is the regression test for every later step.
 
 ### 1.9 Housekeeping
-- `.gitignore`: add `refs/`, `*.pfm`, and render output PNGs in the repo root.
-- Fill the **CPU column** of the timing table (section 8).
+- `.gitignore`: add `refs/`, `*.pfm`, `/*.png` (renders in the repo root only, `scenes/*.png` stay tracked) and `__pycache__/`. Done.
+- Fill the **CPU column** of the timing table (section 8). Done.
 
 Done when: the timing line, PFM, CLI and all three scripts work, the references and noise floors are recorded, and the CPU timings are in `bench/results.csv`. PNG output is unchanged from before Phase 1 (byte compare).
 
@@ -234,12 +258,14 @@ Done when: all of the above pass and the **GPU column** of the timing table is f
 - `PERF_LOG.md`: one entry per measured change.
 - Timing table (goes into the writeup):
 
-| Scene | Res | spp | CPU 20T (ms) | GPU v1 (ms) | GPU final (ms) | Speedup v1 / final | FLIP vs ref (CPU / GPU) |
+| Scene | Res | spp | CPU 20T (ms) | GPU v1 (ms) | GPU final (ms) | Speedup v1 / final | FLIP vs ref at 64 spp (CPU / GPU) |
 |---|---|---|---|---|---|---|---|
-| cornellScatter | 480² | | | | | | |
-| hero | 800² | | | | | | |
-| dragon | 640×480 | | | | | | |
-| mis | 768×512 | | | | | | |
+| cornellScatter | 480² | 128 | 4060 (7.3 Ms/s) | | | | 0.177 / |
+| hero | 800² | 128 | 10381 (7.9 Ms/s) | | | | 0.122 / |
+| dragon | 640×480 | 128 | 12851 (3.1 Ms/s) | | | | 0.0224 / |
+| mis | 768×512 | 128 | 5874 (8.6 Ms/s) | | | | 0.0110 / |
+
+CPU column: Phase 1 build, i7-12700KF, 20 threads, median of 5 runs after 1 warm-up, render only (parse + BVH excluded; dragon adds 192 ms parse + 79 ms BVH). Run-to-run spread: dragon and mis within 1–2%; cornellScatter and hero up to 10%, likely from the mix of P and E cores. Raw rows in `bench/results.csv`. Ms/s = million samples (paths) per second. CPU FLIP is the 16-seed noise-floor mean.
 
 - Writeup draft (markdown here, when asked): approach, harness and validation method, CPU vs GPU table, profile findings, the change-by-change log, image comparisons, what's left.
 
@@ -272,7 +298,9 @@ SceneView.h        raw-pointer scene view + builder (phase 2.4)
 CudaCheck.h        CUDA_CHECK macro (phase 3)
 GpuRender.h        host-facing gpu entry point (phase 3)
 Kernels.cu         device upload, kernel, launch loop (phase 3)
+scripts/vpt.py     shared helpers: scene sets, spp constants, pfm, metrics
 scripts/compare.py rmse, relmse, flip vs reference
+scripts/refs.py    reference renders + noise floor
 scripts/bench.py   timing runs -> bench/results.csv
 scripts/check.py   exact / statistical regression check
 bench/results.csv  raw timings

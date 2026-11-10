@@ -1,0 +1,5 @@
+date,commit,backend,label,scene,w,h,spp,threads,runs,parse_ms,bvh_ms,render_ms,render_min_ms,render_max_ms,msamples_s
+2026-11-09T23:04:38,b0bb232+dirty,cpu,phase 1 cpu baseline,cornellScatter,480,480,128,20,5,0.2,0.0,4059.5,3995.0,4395.5,7.265
+2026-11-09T23:05:40,b0bb232+dirty,cpu,phase 1 cpu baseline,hero,800,800,128,20,5,0.3,0.0,10381.3,9839.9,10694.9,7.891
+2026-11-09T23:06:59,b0bb232+dirty,cpu,phase 1 cpu baseline,dragon,640,480,128,20,5,192.0,78.6,12850.8,12837.8,12920.3,3.060
+2026-11-09T23:07:36,b0bb232+dirty,cpu,phase 1 cpu baseline,mis,768,512,128,20,5,0.3,0.0,5874.3,5843.5,5936.6,8.568
