@@ -165,7 +165,9 @@ Done when: the timing line, PFM, CLI and all three scripts work, the references 
 
 ## 5. Phase 2 — make the CPU code GPU-ready (plain C++)
 
-Each step: change, rebuild, run the check, compile the shared headers with nvcc (below), run `bench.py` when the machine is idle (CPU speed changes count as writeup material too), log the step in `PROGRESS.md`, then **one commit per step**.
+Each step: change, rebuild, run the check, compile the shared headers with nvcc (below), benchmark when the machine is idle (CPU speed changes count as writeup material too), log the step in `PROGRESS.md`, then **one commit per step**.
+
+**Benchmarks are same-session A/B (C11):** run `bench.py` on the previous step's build (`--exe … --commit …`) and on the new build back to back. Never compare against numbers from another day: the same code varied 6–10% between sessions.
 
 **Device compile check (C8):** after every step, run `scripts/devcheck.py`. It compiles `tests/devcheck.cu`, a `__global__` function that calls `pathTrace`, with nvcc (`-arch=sm_86 --expt-relaxed-constexpr`), and lists every host-only function still called from device code. `--strict` fails on any of them. Warnings about host functions called from device code count as failures once the step that removes them is done. This turns "no host-only calls" into a test long before Phase 3.
 
@@ -269,7 +271,7 @@ Done when: all of the above pass and the **GPU column** of the timing table is f
 | dragon | 640×480 | 128 | 12851 (3.1 Ms/s) | | | | 0.0224 / |
 | mis | 768×512 | 128 | 5874 (8.6 Ms/s) | | | | 0.0110 / |
 
-CPU column: Phase 1 build, i7-12700KF, 20 threads, median of 5 runs after 1 warm-up, render only (parse + BVH excluded; dragon adds 192 ms parse + 79 ms BVH). Run-to-run spread: dragon and mis within 1–2%; cornellScatter and hero up to 10%, likely from the mix of P and E cores. Raw rows in `bench/results.csv`. Ms/s = million samples (paths) per second. CPU FLIP is the 16-seed noise-floor mean.
+The final CPU column gets re-measured in the same session as the GPU numbers (C11). Today's values are the 2026-11-09 baseline. CPU column: Phase 1 build, i7-12700KF, 20 threads, median of 5 runs after 1 warm-up, render only (parse + BVH excluded; dragon adds 192 ms parse + 79 ms BVH). Run-to-run spread: dragon and mis within 1–2%; cornellScatter and hero up to 10%, likely from the mix of P and E cores. Raw rows in `bench/results.csv`. Ms/s = million samples (paths) per second. CPU FLIP is the 16-seed noise-floor mean.
 
 - Writeup draft (markdown here, when asked): approach, harness and validation method, CPU vs GPU table, profile findings, the change-by-change log, image comparisons, what's left.
 

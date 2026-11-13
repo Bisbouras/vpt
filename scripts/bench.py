@@ -29,10 +29,11 @@ def main():
     ap.add_argument("--label", default="", help="free text stored with the rows, e.g. the change being measured")
     ap.add_argument("--extra", default="", help="extra renderer arguments, e.g. --gpu")
     ap.add_argument("--csv", default=os.path.join(vpt.ROOT, "bench", "results.csv"))
+    ap.add_argument("--commit", help="commit the renderer was built from, when it isn't HEAD (A/B runs)")
     a = ap.parse_args()
 
     exe = vpt.findExe(a.exe)
-    commit = vpt.gitCommit()
+    commit = a.commit or vpt.gitCommit()
     print(f"renderer {exe}\ncommit {commit}, {a.warmup} warm-up + {a.runs} timed runs, {a.spp} spp\n")
     print(f"{'scene':15s} {'render ms':>10s} {'min':>9s} {'max':>9s} {'Msamples/s':>11s}")
 

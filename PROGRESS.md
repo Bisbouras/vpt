@@ -44,6 +44,7 @@ Entry tags:
 | C8 | Phase 2 gets an nvcc compile check of the shared headers after every step | "No host-only calls in the hot path" otherwise has no test until Phase 3 | 2026-11-12 |
 | C9 | Noise floor re-measured with the new RNG after 2.8 (references unchanged) | The GPU uses the same PCG sampler, so it should be compared against a floor from that sampler | 2026-11-12 |
 | C10 | Phase 2 is committed one step at a time (Phase 1 was one commit) | Clean checkpoints that are easy to bisect if the GPU port finds a problem | 2026-11-12 |
+| C11 | Every speed comparison is a same-session A/B: the previous build is benchmarked right before or after the new one. The final CPU column of the timing table gets re-measured in the same session as the GPU numbers. | The identical Phase 1 code ran 6–10% faster on 2026-11-12 than on 2026-11-09, more than most single changes will gain | 2026-11-12 |
 
 ---
 
@@ -118,4 +119,16 @@ Exact baseline for steps 2.1–2.7: `out/check/phase1` (git-ignored), saved from
   - `std::mt19937` + `uniform_real_distribution` in `pathTrace`, `sampleHG`, `shadeDirect`, `shadeMIS` and `shadeMISVolume` → removed by 2.8
   - `std::vector` access to quad lights, BVH nodes, prims, spheres and triangles in `traceBVH`, `traceScene`, `pdfNEE`, `shadeDirect`, `shadeMIS` and `shadeMISVolume` → removed by 2.4/2.5
 - **Finding:** `std::max` and `std::numeric_limits` don't show up, because they're `constexpr` and `--expt-relaxed-constexpr` allows them on the device. Step 2.2 still replaces them (style rule: no `std::` in the hot path), but it isn't needed to compile.
-- **Result:** exact check 8/8 byte-identical. Device compile: no errors, 14 host calls left.
+- **Result:** exact check 8/8 byte-identical. Device compile: no errors, 14 host calls left. Committed as `7beb909`.
+- **Harness:** the first 2.1 benchmark was disturbed partway through by something outside the renderer: dragon's runs ranged 11.4–54.6 s and mis's 5.4–15.7 s, while the machine was idle again afterwards. The run was repeated and its 4 rows removed from `bench/results.csv`.
+- **Finding:** the clean re-run was 3–12% faster than the Phase 1 baseline from 2026-11-09. To find out why, the Phase 1 code (`ae82772`, exported with `git archive` and built separately) was timed in the same session:
+
+  | Scene | Phase 1 build | 2.1 build | Change |
+  |---|---|---|---|
+  | cornellScatter | 4044 ms | 3935 ms | −2.7% |
+  | hero | 9557 ms | 9362 ms | −2.0% |
+  | dragon | 11509 ms | 11353 ms | −1.3% |
+  | mis | 5545 ms | 5416 ms | −2.3% |
+
+  **Result:** 2.1 itself is about 2% faster, consistently on every scene, but small (min/max ranges barely overlap). Most of the gap to the 2026-11-09 baseline is the machine: the identical Phase 1 code runs 6–10% faster today. Timings from different sessions can't be compared (C11).
+- **Harness:** `bench.py` gained `--commit`, to stamp rows from a binary that isn't HEAD (A/B runs). The `+dirty` flag now looks only at renderer source (`*.h`, `*.cpp`, `*.cu`, `CMakeLists.txt`), because appending to `bench/results.csv` made every later run "dirty". The 2.1 rows were corrected from `7beb909+dirty` to `7beb909`.

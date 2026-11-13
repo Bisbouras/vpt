@@ -203,12 +203,12 @@ def writePPM(path, img):
 
 
 def gitCommit():
-    """short head hash, with +dirty when the working tree has changes."""
+    """short head hash, with +dirty when renderer source differs from it (docs and bench data don't count)."""
     try:
         h = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT,
                            capture_output=True, text=True, check=True).stdout.strip()
-        dirty = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"], cwd=ROOT,
-                               capture_output=True, text=True, check=True).stdout.strip()
+        dirty = subprocess.run(["git", "status", "--porcelain", "--", "*.h", "*.cpp", "*.cu", "CMakeLists.txt"],
+                               cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
         return h + ("+dirty" if dirty else "")
     except (OSError, subprocess.CalledProcessError):
         return "unknown"
