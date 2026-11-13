@@ -2,7 +2,7 @@
 
 Working plan for porting the VPT path tracer to CUDA: what the code looks like today, the design decisions, each phase's tasks, how each step is checked, and the risks. What actually happened (bugs found, plan changes, results) is logged in `PROGRESS.md`.
 
-Status: **Phase 1 done (2026-11-09): harness, references, validated statistical check, CPU timings (section 8). Phase 3 in progress. 3.1 done 2026-11-13: `--gpu` works, GPU passes the statistical check 8/8, memcheck clean. Next: 3.2, GPU benchmarks and the timing table (GPU idle needed).** Phases run one at a time, with a review before each.
+Status: **Phase 1 done (2026-11-09): harness, references, validated statistical check, CPU timings (section 8). Phase 3 done 2026-11-13: `--gpu` passes the statistical check 8/8, memcheck is clean, and GPU v1 is 5.0–37× the 20-thread CPU (timing table, section 8). Next: Phase 4 (profile and optimise), after review. Needs the `ncu` counter permission first (`PROGRESS.md` open items).** Phases run one at a time, with a review before each.
 
 ---
 
@@ -266,12 +266,14 @@ Done when: all of the above pass and the **GPU column** of the timing table is f
 
 | Scene | Res | spp | CPU 20T (ms) | GPU v1 (ms) | GPU final (ms) | Speedup v1 / final | FLIP vs ref at 64 spp (CPU / GPU) |
 |---|---|---|---|---|---|---|---|
-| cornellScatter | 480² | 128 | 4060 (7.3 Ms/s) | | | | 0.177 / |
-| hero | 800² | 128 | 10381 (7.9 Ms/s) | | | | 0.122 / |
-| dragon | 640×480 | 128 | 12851 (3.1 Ms/s) | | | | 0.0224 / |
-| mis | 768×512 | 128 | 5874 (8.6 Ms/s) | | | | 0.0110 / |
+| cornellScatter | 480² | 128 | 3687 (8.0 Ms/s) | 735 (40 Ms/s) | | 5.0× / | 0.177 / 0.177 |
+| hero | 800² | 128 | 8863 (9.2 Ms/s) | 1246 (66 Ms/s) | | 7.1× / | 0.122 / 0.122 |
+| dragon | 640×480 | 128 | 10513 (3.7 Ms/s) | 1902 (21 Ms/s) | | 5.5× / | 0.0224 / 0.0224 |
+| mis | 768×512 | 128 | 5178 (9.7 Ms/s) | 140 (360 Ms/s) | | 37× / | 0.0110 / 0.0110 |
 
-The final CPU column gets re-measured in the same session as the GPU numbers (C11). The values below are the 2026-11-09 Phase 1 baseline. End of Phase 2, measured 2026-11-12 in the same session as Phase 1 (`PROGRESS.md`): cornellScatter 3734 ms, hero 8840 ms, dragon 10323 ms, mis 5056 ms, 6–7% faster than Phase 1 that day. CPU column: Phase 1 build, i7-12700KF, 20 threads, median of 5 runs after 1 warm-up, render only (parse + BVH excluded; dragon adds 192 ms parse + 79 ms BVH). Run-to-run spread: dragon and mis within 1–2%; cornellScatter and hero up to 10%, likely from the mix of P and E cores. Raw rows in `bench/results.csv`. Ms/s = million samples (paths) per second. CPU FLIP is the 16-seed noise-floor mean.
+**CPU and GPU v1 columns:** measured 2026-11-13 in one session with the same build (`01481a7`, end of Phase 2 + the 3.1 kernel), GPU → CPU → GPU (C11). Median of 5 runs after 1 warm-up, render time only (parse + BVH excluded; dragon adds ~190 ms parse + ~75 ms BVH on both). CPU: i7-12700KF, 20 OpenMP threads. GPU: RTX 3070 Ti, render time from CUDA events around all 128 launches. Upload + download adds under 3 ms per render (`total_ms` in `bench/results.csv`). The two GPU runs agree within 0.5%. Ms/s = million samples (paths) per second. CPU FLIP is the PCG noise-floor mean (16 seeds); GPU FLIP is one seed-0 render, both at 64 spp against the CPU references.
+
+Earlier CPU baselines, for reference: Phase 1 on 2026-11-09 was cornellScatter 4060 ms, hero 10381 ms, dragon 12851 ms, mis 5874 ms (see C11 on comparing across days). End of Phase 2 vs Phase 1, same session: 6–7% faster.
 
 - Writeup draft (markdown here, when asked): approach, harness and validation method, CPU vs GPU table, profile findings, the change-by-change log, image comparisons, what's left.
 

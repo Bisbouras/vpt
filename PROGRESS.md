@@ -306,3 +306,25 @@ All builds were first re-verified against their exact baselines (8/8 each). Then
 - **Result (indicative only, machine not confirmed idle):** first GPU run of cornellScatter at 128 spp: render 720 ms (41 Ms/s), upload 2.0 ms, download 0.3 ms, against 3734 ms on the CPU at the end of Phase 2. That's about 5× from the naive kernel. Proper benchmarks come in 3.2.
 - **Harness:** `check.py`/`bench.py` need `--extra=--gpu` (with `=`). Written as `--extra "--gpu"`, argparse takes `--gpu` for an option of its own and errors.
 - Build kept as `out/check/bin/3.1.exe`, which has both backends.
+- Committed as `01481a7`. The build is now `out/check/bin/01481a7.exe`.
+
+### 3.2 — GPU v1 timings (2026-11-13)
+
+- **Harness:** `bench.py` records the GPU's `upload_ms`, `download_ms` and `total_ms` (medians) in three new CSV columns, empty for CPU rows. The existing rows were rewritten with the new header and empty values.
+- Measured on an idle machine (GPU at idle clocks, only Discord open), one build (`01481a7`), in the order GPU → CPU → GPU. 128 spp, median of 5 after 1 warm-up:
+
+  | Scene | CPU 20 threads | GPU v1 | Speedup | GPU Ms/s |
+  |---|---|---|---|---|
+  | cornellScatter | 3687 ms | 735 ms | **5.0×** | 40 |
+  | hero | 8863 ms | 1246 ms | **7.1×** | 66 |
+  | dragon | 10513 ms | 1902 ms | **5.5×** | 21 |
+  | mis | 5178 ms | 140 ms | **37×** | 360 |
+
+- **Result:** the GPU numbers are very stable: run 1 vs run 2 within 0.5%, and every min/max range within 0.3% of its median. Upload + download is under 3 ms per render (dragon's 5.2 MB of triangles uploads in 2.2 ms), so `total_ms` is within 0.5% of `render_ms`.
+- **Result:** GPU FLIP against the references (64 spp, seed 0) equals the CPU noise-floor mean to three digits on all four scenes (0.177, 0.122, 0.0224, 0.0110).
+- **Finding (Phase 4 leads):** the speedup ranges from 5× to 37×, and the spread lines up with how differently neighbouring pixels behave:
+  - **mis (37×):** depth 1, direct light only. Every thread runs the same short code (5 NEE samples + 1 BRDF sample), so warps stay coherent. This is close to what the GPU can do on this code.
+  - **cornellScatter (5.0×):** a scattering medium. Each thread randomly decides between a surface hit and a volume scatter event, paths run up to 45 bounces (2.9), and every bounce traverses the BVH. Expect warp divergence and idle lanes, which is the first thing to check in Nsight Compute.
+  - **dragon (5.5×):** BVH traversal over 100k triangles, with one primitive per leaf, a median-split tree and a 64-entry stack in local memory. Expect memory-bound traversal: node layout, SAH and near-child-first traversal are the Phase 4 candidates.
+  - **hero (7.1×):** a medium too, but thinner (σ_t ≈ 0.1) and most paths short (longest 21).
+- **Result:** Phase 3's done criteria are met: GPU output passes the statistical check (3.1), memcheck is clean (3.1), and the CPU and GPU v1 columns of the timing table are filled in (`PLAN.md` section 8, same session).

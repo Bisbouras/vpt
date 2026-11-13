@@ -20,14 +20,19 @@ import tempfile
 import vpt
 
 FIELDS = ["date", "commit", "backend", "label", "scene", "w", "h", "spp", "threads", "runs",
-          "parse_ms", "bvh_ms", "render_ms", "render_min_ms", "render_max_ms", "msamples_s"]
+          "parse_ms", "bvh_ms", "render_ms", "render_min_ms", "render_max_ms", "msamples_s",
+          "upload_ms", "download_ms", "total_ms"]
+# gpu-only fields - medians, empty for cpu runs
+GPU_FIELDS = ("upload_ms", "download_ms", "total_ms")
 
 
 def row(name, path, times, commit, label, a):
     w, h = vpt.sceneSize(path)
     med = {k: statistics.median(t[k] for t in times) for k in ("parse_ms", "bvh_ms", "render_ms")}
     rs = [t["render_ms"] for t in times]
+    gpu = {k: f"{statistics.median(t[k] for t in times):.1f}" if k in times[0] else "" for k in GPU_FIELDS}
     return {
+        **gpu,
         "date": datetime.datetime.now().isoformat(timespec="seconds"), "commit": commit,
         "backend": a.backend, "label": label, "scene": name, "w": w, "h": h, "spp": a.spp,
         "threads": int(times[0].get("threads", 0)), "runs": len(times),
