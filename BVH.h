@@ -20,7 +20,7 @@ struct AABB {
 
     vec3 centroid() const { return (bmin + bmax) * 0.5f; }
 
-    bool hit(const vec3& orig, const vec3& inv_d, float tmax) const {
+    HD bool hit(const vec3& orig, const vec3& inv_d, float tmax) const {
         vec3 t0 = (bmin - orig) * inv_d;
         vec3 t1 = (bmax - orig) * inv_d;
         vec3 lo = glm::min(t0, t1);
@@ -39,7 +39,7 @@ struct Prim {
     AABB box;
 };
 
-AABB getSphereBox(const Sphere& s) {
+inline AABB getSphereBox(const Sphere& s) {
     // transform 8 corners of the local bbox to world space
     vec3 lo = s.center - vec3(s.radius);
     vec3 hi = s.center + vec3(s.radius);
@@ -57,7 +57,7 @@ AABB getSphereBox(const Sphere& s) {
     return b;
 }
 
-AABB getTriBox(const Triangle& t) {
+inline AABB getTriBox(const Triangle& t) {
     AABB b;
     b.grow(t.v0);
     b.grow(t.v1);

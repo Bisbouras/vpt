@@ -2,7 +2,7 @@
 
 Working plan for porting the VPT path tracer to CUDA: what the code looks like today, the design decisions, each phase's tasks, how each step is checked, and the risks. What actually happened (bugs found, plan changes, results) is logged in `PROGRESS.md`.
 
-Status: **Phase 1 done (2026-11-09): harness, references, validated statistical check, CPU timings (section 8). Next: Phase 2.** Phases run one at a time, with a review before each.
+Status: **Phase 1 done (2026-11-09): harness, references, validated statistical check, CPU timings (section 8). Phase 2 in progress: 2.1 done 2026-11-12. Next: 2.2.** Phases run one at a time, with a review before each.
 
 ---
 
@@ -165,7 +165,11 @@ Done when: the timing line, PFM, CLI and all three scripts work, the references 
 
 ## 5. Phase 2 — make the CPU code GPU-ready (plain C++)
 
-Each step: change, rebuild, run the check, run `bench.py` (CPU speed changes count as writeup material too), one commit.
+Each step: change, rebuild, run the check, compile the shared headers with nvcc (below), run `bench.py` when the machine is idle (CPU speed changes count as writeup material too), log the step in `PROGRESS.md`, then **one commit per step**.
+
+**Device compile check (C8):** after every step, run `scripts/devcheck.py`. It compiles `tests/devcheck.cu`, a `__global__` function that calls `pathTrace`, with nvcc (`-arch=sm_86 --expt-relaxed-constexpr`), and lists every host-only function still called from device code. `--strict` fails on any of them. Warnings about host functions called from device code count as failures once the step that removes them is done. This turns "no host-only calls" into a test long before Phase 3.
+
+**After 2.8 (C9):** once the new RNG passes against the current floor, re-measure the floor with it (`scripts/refs.py --floor`, about 10 min) so the GPU is compared against the same sampler. Also save a new exact baseline, since every image changes at 2.8. The references stay as they are.
 
 **Check types:** **[exact]** = PFM files byte-identical to the image before the step, for the benchmark + correctness sets at low spp. **[stat]** = `compare.py` against the references, within the noise floor.
 
@@ -304,6 +308,8 @@ scripts/compare.py rmse, relmse, flip vs reference
 scripts/refs.py    reference renders + noise floor
 scripts/bench.py   timing runs -> bench/results.csv
 scripts/check.py   exact / statistical regression check
+scripts/devcheck.py nvcc compile check of the shared headers
+tests/devcheck.cu  kernel used by devcheck.py
 bench/results.csv  raw timings
 refs/              reference pfms (git-ignored)
 ```

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Common.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <vector>
@@ -19,7 +20,7 @@ enum NEEMode { NEE_OFF, NEE_ON, NEE_MIS };
 struct Ray {
     vec3 origin;
     vec3 direction;
-    Ray(vec3 o, vec3 d) : origin(o), direction(glm::normalize(d)) {}
+    HD Ray(vec3 o, vec3 d) : origin(o), direction(glm::normalize(d)) {}
 };
 
 struct Material {

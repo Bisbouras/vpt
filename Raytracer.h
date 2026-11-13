@@ -10,19 +10,19 @@
 #include <atomic>
 #include <iostream>
 
-const float EPS = 1e-4f;
-const float INF = std::numeric_limits<float>::max();
+constexpr float EPS = 1e-4f;
+constexpr float INF = std::numeric_limits<float>::max();
 
 // beer-lambert transmittance over a path of length d through the global medium.
 // componentwise rgb so colored fog works.
-vec3 transmittance(float d, const Scene& sc) {
+HD inline vec3 transmittance(float d, const Scene& sc) {
     vec3 sigma_t = sc.globalMedium.sigma_a + sc.globalMedium.sigma_s;
     if (sigma_t == vec3(0)) return vec3(1);
     return glm::exp(-sigma_t * d);
 }
 
 // orthonormal basis aligned with w. fall back to right vector when w is near up.
-void onbBasis(const vec3& w, vec3& u, vec3& v) {
+HD inline void onbBasis(const vec3& w, vec3& u, vec3& v) {
     vec3 a = (fabs(w.y) > 0.99f) ? vec3(1, 0, 0) : vec3(0, 1, 0);
     u = glm::normalize(glm::cross(a, w));
     v = glm::cross(w, u);
@@ -30,7 +30,7 @@ void onbBasis(const vec3& w, vec3& u, vec3& v) {
 
 // ray-sphere intersection
 // pretransform the ray into object space, intersect, then transform back
-Hit hitSphere(const Ray& ray, const Sphere& sph) {
+HD inline Hit hitSphere(const Ray& ray, const Sphere& sph) {
     Hit res;
 
     vec3 roObj = vec3(sph.invTransform * vec4(ray.origin, 1.0f));
@@ -68,7 +68,7 @@ Hit hitSphere(const Ray& ray, const Sphere& sph) {
 }
 
 // moller-trumbore
-Hit hitTriangle(const Ray& ray, const Triangle& tri) {
+HD inline Hit hitTriangle(const Ray& ray, const Triangle& tri) {
     Hit res;
 
     vec3 e1 = tri.v1 - tri.v0;
@@ -99,7 +99,7 @@ Hit hitTriangle(const Ray& ray, const Triangle& tri) {
 }
 
 // traverse BVH to find closest hit
-Hit traceBVH(const Ray& ray, const BVH& bvh, const Scene& sc, float maxT = INF) {
+HD inline Hit traceBVH(const Ray& ray, const BVH& bvh, const Scene& sc, float maxT = INF) {
     Hit closest;
     closest.t = maxT;
     closest.found = false;
@@ -140,7 +140,7 @@ Hit traceBVH(const Ray& ray, const BVH& bvh, const Scene& sc, float maxT = INF) 
     return closest;
 }
 
-bool shadow(const vec3& pt, const vec3& dir, float maxd, const BVH& bvh, const Scene& sc) {
+HD inline bool shadow(const vec3& pt, const vec3& dir, float maxd, const BVH& bvh, const Scene& sc) {
     Ray sray(pt + EPS * dir, dir);
     Hit h = traceBVH(sray, bvh, sc, maxd);
     return h.found;
@@ -148,7 +148,7 @@ bool shadow(const vec3& pt, const vec3& dir, float maxd, const BVH& bvh, const S
 
 // arvo's analytic irradiance from a polygonal light source
 // returns the irradiance vector phi; caller dots with surface normal
-vec3 arvoPhi(const vec3& pt, const vec3 poly[], int n) {
+inline vec3 arvoPhi(const vec3& pt, const vec3 poly[], int n) {
     vec3 phi(0);
     for (int k = 0; k < n; k++) {
         vec3 a = poly[k] - pt;
@@ -165,7 +165,7 @@ vec3 arvoPhi(const vec3& pt, const vec3 poly[], int n) {
 }
 
 // analytic direct lighting for diffuse (lambertian) surfaces
-vec3 shadeAnalytic(const Hit& h, const Scene& sc) {
+inline vec3 shadeAnalytic(const Hit& h, const Scene& sc) {
     vec3 col = h.mat.emission;
     vec3 n = glm::normalize(h.norm);
 
@@ -188,7 +188,7 @@ vec3 shadeAnalytic(const Hit& h, const Scene& sc) {
 // modified phong brdf
 // f = kd/pi + ks * (s+2)/(2*pi) * max(0, dot(R, wo))^s
 // where R is wi reflected about n
-vec3 modPhongBRDF(const vec3& wi, const vec3& wo, const vec3& n,
+HD inline vec3 modPhongBRDF(const vec3& wi, const vec3& wo, const vec3& n,
                   const vec3& kd, const vec3& ks, float s) {
     vec3 diff = kd / glm::pi<float>();
     vec3 r = glm::reflect(-wi, n);
@@ -198,14 +198,14 @@ vec3 modPhongBRDF(const vec3& wi, const vec3& wo, const vec3& n,
 }
 
 // schlick's approximation of fresnel reflectance
-vec3 fresnelSchlick(const vec3& ks, float widoth) {
+HD inline vec3 fresnelSchlick(const vec3& ks, float widoth) {
     float c = 1.0f - widoth;
     float c5 = c * c * c * c * c;
     return ks + (vec3(1.0f) - ks) * c5;
 }
 
 // ggx microfacet distribution
-float ggxD(float ndoth, float alpha) {
+HD inline float ggxD(float ndoth, float alpha) {
     if (ndoth <= 0) return 0;
     float a2 = alpha * alpha;
     float c2 = ndoth * ndoth;
@@ -215,7 +215,7 @@ float ggxD(float ndoth, float alpha) {
 }
 
 // smith g1 monodirectional shadowing-masking
-float ggxG1(float vdotn, float alpha) {
+HD inline float ggxG1(float vdotn, float alpha) {
     if (vdotn <= 0) return 0;
     float c2 = vdotn * vdotn;
     float tan2 = (1.0f - c2) / c2;
@@ -223,7 +223,7 @@ float ggxG1(float vdotn, float alpha) {
 }
 
 // ggx specular + lambertian diffuse mixture brdf
-vec3 ggxBRDF(const vec3& wi, const vec3& wo, const vec3& n,
+HD inline vec3 ggxBRDF(const vec3& wi, const vec3& wo, const vec3& n,
              const vec3& kd, const vec3& ks, float alpha) {
     float ndotwi = glm::dot(n, wi);
     float ndotwo = glm::dot(n, wo);
@@ -240,13 +240,13 @@ vec3 ggxBRDF(const vec3& wi, const vec3& wo, const vec3& n,
 }
 
 // brdf dispatcher based on material type
-vec3 evalBRDF(const Material& m, const vec3& wi, const vec3& wo, const vec3& n) {
+HD inline vec3 evalBRDF(const Material& m, const vec3& wi, const vec3& wo, const vec3& n) {
     if (m.brdf == GGX) return ggxBRDF(wi, wo, n, m.diffuse, m.specular, m.roughness);
     return modPhongBRDF(wi, wo, n, m.diffuse, m.specular, m.shininess);
 }
 
 // monte carlo direct lighting with optional stratified sampling
-vec3 shadeDirect(const Hit& h, const Ray& ray, const BVH& bvh, const Scene& sc,
+HD inline vec3 shadeDirect(const Hit& h, const Ray& ray, const BVH& bvh, const Scene& sc,
                  std::mt19937& rng) {
     vec3 col = h.mat.emission;
     vec3 n = glm::normalize(h.norm);
@@ -301,7 +301,7 @@ vec3 shadeDirect(const Hit& h, const Ray& ray, const BVH& bvh, const Scene& sc,
     return col;
 }
 
-vec3 shade(const Hit& h, const Ray& ray, const BVH& bvh, const Scene& sc) {
+inline vec3 shade(const Hit& h, const Ray& ray, const BVH& bvh, const Scene& sc) {
     vec3 col = h.mat.ambient + h.mat.emission;
     vec3 n = glm::normalize(h.norm);
     vec3 v = glm::normalize(ray.origin - h.pos);
@@ -345,7 +345,7 @@ vec3 shade(const Hit& h, const Ray& ray, const BVH& bvh, const Scene& sc) {
 }
 
 // recursive raytrace with mirror reflection
-vec3 trace(const Ray& ray, const BVH& bvh, const Scene& sc, int depth) {
+inline vec3 trace(const Ray& ray, const BVH& bvh, const Scene& sc, int depth) {
     if (depth <= 0) return vec3(0);
 
     Hit h = traceBVH(ray, bvh, sc);
@@ -363,7 +363,7 @@ vec3 trace(const Ray& ray, const BVH& bvh, const Scene& sc, int depth) {
     return col;
 }
 
-Ray makeRay(float px, float py, const Scene& sc) {
+HD inline Ray makeRay(float px, float py, const Scene& sc) {
     float aspect = (float)sc.w / (float)sc.h;
     float fovyr = glm::radians(sc.fovy);
     float fovxr = 2.0f * atanf(tanf(fovyr / 2.0f) * aspect);
@@ -378,7 +378,7 @@ Ray makeRay(float px, float py, const Scene& sc) {
     return Ray(sc.eye, glm::normalize(a * u + b * v - w));
 }
 
-bool hitQuad(const Ray& ray, const QuadLight& q, float& tOut) {
+HD inline bool hitQuad(const Ray& ray, const QuadLight& q, float& tOut) {
     vec3 nl = glm::cross(q.ab, q.ac);
     float denom = glm::dot(ray.direction, nl);
     if (fabs(denom) < 1e-8f) return false;
@@ -398,7 +398,7 @@ bool hitQuad(const Ray& ray, const QuadLight& q, float& tOut) {
 // like traceBVH but also intersects quad lights, synthesizing a Hit with
 // emission set. for primary + indirect rays in the path tracer.
 // shadow rays still use traceBVH (the light shouldn't shadow itself).
-Hit traceScene(const Ray& ray, const BVH& bvh, const Scene& sc, float maxT = INF) {
+HD inline Hit traceScene(const Ray& ray, const BVH& bvh, const Scene& sc, float maxT = INF) {
     Hit closest = traceBVH(ray, bvh, sc, maxT);
 
     for (size_t k = 0; k < sc.quadLights.size(); k++) {
@@ -419,7 +419,7 @@ Hit traceScene(const Ray& ray, const BVH& bvh, const Scene& sc, float maxT = INF
 }
 
 // reflectiveness t = avg(ks) / (avg(kd) + avg(ks)). returns 1 if both zero.
-float phongT(const vec3& kd, const vec3& ks) {
+HD inline float phongT(const vec3& kd, const vec3& ks) {
     float ad = (kd.r + kd.g + kd.b) / 3.0f;
     float as = (ks.r + ks.g + ks.b) / 3.0f;
     float d = ad + as;
@@ -428,7 +428,7 @@ float phongT(const vec3& kd, const vec3& ks) {
 }
 
 // ggx reflectiveness: same as phong but with a 0.25 floor so fresnel always gets samples.
-float ggxT(const vec3& kd, const vec3& ks) {
+HD inline float ggxT(const vec3& kd, const vec3& ks) {
     float ad = (kd.r + kd.g + kd.b) / 3.0f;
     float as = (ks.r + ks.g + ks.b) / 3.0f;
     float d = ad + as;
@@ -438,7 +438,7 @@ float ggxT(const vec3& kd, const vec3& ks) {
 
 // sample wi from the modified phong importance sampling pdf.
 // xi0 picks diffuse vs specular lobe; (xi1, xi2) generate the spherical coords.
-vec3 samplePhongDir(const Material& m, const vec3& wo, const vec3& n,
+HD inline vec3 samplePhongDir(const Material& m, const vec3& wo, const vec3& n,
                     float xi0, float xi1, float xi2) {
     float t = phongT(m.diffuse, m.specular);
     float phi = 2.0f * glm::pi<float>() * xi2;
@@ -460,7 +460,7 @@ vec3 samplePhongDir(const Material& m, const vec3& wo, const vec3& n,
 }
 
 // evaluate the modified phong importance sampling pdf at arbitrary wi
-float pdfPhongDir(const Material& m, const vec3& wi, const vec3& wo, const vec3& n) {
+HD inline float pdfPhongDir(const Material& m, const vec3& wi, const vec3& wo, const vec3& n) {
     float t = phongT(m.diffuse, m.specular);
     float ndotwi = std::max(glm::dot(n, wi), 0.0f);
     vec3 r = glm::reflect(-wo, n);
@@ -472,7 +472,7 @@ float pdfPhongDir(const Material& m, const vec3& wi, const vec3& wo, const vec3&
 
 // sample wi from the ggx importance sampling pdf.
 // specular lobe samples a half vector from D then reflects wo about it.
-vec3 sampleGGXDir(const Material& m, const vec3& wo, const vec3& n,
+HD inline vec3 sampleGGXDir(const Material& m, const vec3& wo, const vec3& n,
                   float xi0, float xi1, float xi2) {
     float t = ggxT(m.diffuse, m.specular);
     float phi = 2.0f * glm::pi<float>() * xi2;
@@ -494,7 +494,7 @@ vec3 sampleGGXDir(const Material& m, const vec3& wo, const vec3& n,
 }
 
 // evaluate the ggx importance sampling pdf at arbitrary wi
-float pdfGGXDir(const Material& m, const vec3& wi, const vec3& wo, const vec3& n) {
+HD inline float pdfGGXDir(const Material& m, const vec3& wi, const vec3& wo, const vec3& n) {
     float t = ggxT(m.diffuse, m.specular);
     float ndotwi = std::max(glm::dot(n, wi), 0.0f);
     vec3 h = glm::normalize(wi + wo);
@@ -507,19 +507,19 @@ float pdfGGXDir(const Material& m, const vec3& wi, const vec3& wo, const vec3& n
 }
 
 // brdf sampling dispatcher
-vec3 sampleBRDFDir(const Material& m, const vec3& wo, const vec3& n,
+HD inline vec3 sampleBRDFDir(const Material& m, const vec3& wo, const vec3& n,
                    float xi0, float xi1, float xi2) {
     if (m.brdf == GGX) return sampleGGXDir(m, wo, n, xi0, xi1, xi2);
     return samplePhongDir(m, wo, n, xi0, xi1, xi2);
 }
 
-float pdfBRDFDir(const Material& m, const vec3& wi, const vec3& wo, const vec3& n) {
+HD inline float pdfBRDFDir(const Material& m, const vec3& wi, const vec3& wo, const vec3& n) {
     if (m.brdf == GGX) return pdfGGXDir(m, wi, wo, n);
     return pdfPhongDir(m, wi, wo, n);
 }
 
 // per-light angular-measure pdf: R^2 / (A * |nl . wi|) if the ray hits light k, else 0
-float pdfLightK(const vec3& pos, const vec3& wi, const QuadLight& q) {
+HD inline float pdfLightK(const vec3& pos, const vec3& wi, const QuadLight& q) {
     Ray r(pos + EPS * wi, wi);
     float t;
     if (!hitQuad(r, q, t)) return 0;
@@ -533,7 +533,7 @@ float pdfLightK(const vec3& pos, const vec3& wi, const QuadLight& q) {
 }
 
 // nee pdf averaged over all quad lights
-float pdfNEE(const vec3& pos, const vec3& wi, const Scene& sc) {
+HD inline float pdfNEE(const vec3& pos, const vec3& wi, const Scene& sc) {
     int n = (int)sc.quadLights.size();
     if (n == 0) return 0;
     float sum = 0;
@@ -543,7 +543,7 @@ float pdfNEE(const vec3& pos, const vec3& wi, const Scene& sc) {
 
 // multi-sample mis direct lighting with power heuristic (beta = 2).
 // uses one nee sample per light plus one brdf sample. caller adds h.mat.emission.
-vec3 shadeMIS(const Hit& h, const Ray& ray, const BVH& bvh, const Scene& sc,
+HD inline vec3 shadeMIS(const Hit& h, const Ray& ray, const BVH& bvh, const Scene& sc,
               std::mt19937& rng) {
     vec3 col(0);
     vec3 n = glm::normalize(h.norm);
@@ -617,7 +617,7 @@ vec3 shadeMIS(const Hit& h, const Ray& ray, const BVH& bvh, const Scene& sc,
 }
 
 // henyey-greenstein phase function. p = (1-g^2) / (4pi * (1 + g^2 - 2g*cos)^(3/2))
-float hgPhase(float cosTheta, float g) {
+HD inline float hgPhase(float cosTheta, float g) {
     if (fabsf(g) < 1e-3f) return 1.0f / (4.0f * glm::pi<float>());
     float denom = 1.0f + g*g - 2.0f * g * cosTheta;
     return (1.0f - g*g) / (4.0f * glm::pi<float>() * denom * sqrtf(denom));
@@ -626,7 +626,7 @@ float hgPhase(float cosTheta, float g) {
 // sample a new direction from HG given the incoming direction wo (points back to last vertex).
 // cosTheta is the angle between the new direction and the ray's forward direction (-wo).
 // returns the new direction and sets pdf to the HG value at that direction.
-vec3 sampleHG(const vec3& wo, float g, std::mt19937& rng, float& pdf) {
+HD inline vec3 sampleHG(const vec3& wo, float g, std::mt19937& rng, float& pdf) {
     std::uniform_real_distribution<float> U(0.0f, 1.0f);
     float xi1 = U(rng), xi2 = U(rng);
     float cosTheta;
@@ -653,7 +653,7 @@ vec3 sampleHG(const vec3& wo, float g, std::mt19937& rng, float& pdf) {
 // mis direct lighting at a medium scattering vertex.
 // same structure as shadeMIS but with the phase function in place of the BRDF and
 // no surface normal / cosine factor.
-vec3 shadeMISVolume(const vec3& p, const vec3& wo, const BVH& bvh, const Scene& sc,
+HD inline vec3 shadeMISVolume(const vec3& p, const vec3& wo, const BVH& bvh, const Scene& sc,
                     std::mt19937& rng) {
     vec3 col(0);
     std::uniform_real_distribution<float> U(0.0f, 1.0f);
@@ -721,7 +721,7 @@ vec3 shadeMISVolume(const vec3& p, const vec3& wo, const BVH& bvh, const Scene& 
 
 // iterative path tracer with optional NEE/MIS, brdf importance sampling, and russian roulette.
 // maxdepth < 0 means unbounded (only RR can terminate).
-vec3 pathTrace(const Ray& primary, const BVH& bvh, const Scene& sc, std::mt19937& rng) {
+HD inline vec3 pathTrace(const Ray& primary, const BVH& bvh, const Scene& sc, std::mt19937& rng) {
     std::uniform_real_distribution<float> U(0.0f, 1.0f);
     vec3 L(0);
     vec3 T(1);
@@ -865,7 +865,7 @@ vec3 pathTrace(const Ray& primary, const BVH& bvh, const Scene& sc, std::mt19937
 }
 
 // accum gets the linear colour before clamp and gamma, pixels the 8-bit output
-void render(const Scene& sc, const BVH& bvh, unsigned char* pixels, vec3* accum, bool quiet) {
+inline void render(const Scene& sc, const BVH& bvh, unsigned char* pixels, vec3* accum, bool quiet) {
     int total = sc.w * sc.h;
     std::atomic<int> done(0);
     // seed - per-pixel seeds of different seed values never overlap

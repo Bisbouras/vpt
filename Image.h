@@ -6,7 +6,7 @@
 #include <string>
 
 // pfm - "PF" colour, negative scale = little-endian, rows stored bottom to top
-bool writePFM(const std::string& path, int w, int h, const vec3* data) {
+inline bool writePFM(const std::string& path, int w, int h, const vec3* data) {
     std::ofstream f(path, std::ios::binary);
     if (!f) return false;
     f << "PF\n" << w << " " << h << "\n-1.0\n";
@@ -21,7 +21,7 @@ bool writePFM(const std::string& path, int w, int h, const vec3* data) {
 }
 
 // pfm path next to the png - swaps the extension, or appends .pfm
-std::string pfmPath(const std::string& png) {
+inline std::string pfmPath(const std::string& png) {
     size_t slash = png.find_last_of("/\\");
     size_t dot = png.rfind('.');
     if (dot == std::string::npos || (slash != std::string::npos && dot < slash))

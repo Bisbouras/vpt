@@ -6,7 +6,7 @@
 #include <iostream>
 #include <stack>
 
-Scene parseScene(const std::string& filename) {
+inline Scene parseScene(const std::string& filename) {
     Scene scene;
     std::ifstream infile(filename);
     if (!infile.is_open()) {

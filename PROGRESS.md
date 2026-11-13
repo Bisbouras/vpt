@@ -27,7 +27,7 @@ Entry tags:
 |---|---|---|---|
 | B1 | `done++` in `render()` is a data race under OpenMP. It also printed progress lines from several threads. | Outline (known) | **Fixed** in Phase 1 (`ae82772`): `std::atomic<int>`, printing off with `--quiet` |
 | B2 | `AABB::hit` can produce NaN for axis-aligned rays (0 × inf). CPU and GPU min/max treat NaN differently. | Outline (known) | Open → Phase 2.6 |
-| B3 | Functions defined in headers aren't `inline`. Linking will fail with duplicate symbols as soon as a second file (`Kernels.cu`) includes them. Latent today. | Phase 0.5 code read | Open → Phase 2.1 |
+| B3 | Functions defined in headers aren't `inline`. Linking will fail with duplicate symbols as soon as a second file (`Kernels.cu`) includes them. Latent today. | Phase 0.5 code read | **Fixed** in 2.1 |
 | B4 | No bounce cap for `maxdepth -1`: only Russian roulette ends a path. Fine on the CPU, but on the GPU it means long-tailed warps and a risk of hitting the Windows 2 s kernel timeout. | Phase 0.5 code read | Open → Phase 2.9 (decision D5) |
 
 ## Plan changes
@@ -41,6 +41,9 @@ Entry tags:
 | C5 | References rendered with their own seed (1000) | With seed 0, a 64-spp test would reuse the reference's first 64 samples per pixel and look better than it is | 2026-11-09 |
 | C6 | Statistical pass rule redesigned: 16 seeds (was 2, then 8), trimmed relMSE, two block-mean bias metrics, per-metric limits | The first version gave false failures and missed 5% errors (see Phase 1, statistical check) | 2026-11-09 |
 | C7 | Two more scripts than planned: `scripts/vpt.py` (shared helpers) and `scripts/refs.py` (references + noise floor). The FLIP error map is written as `.ppm`. | Shared code in one place, and no PIL dependency | 2026-11-09 |
+| C8 | Phase 2 gets an nvcc compile check of the shared headers after every step | "No host-only calls in the hot path" otherwise has no test until Phase 3 | 2026-11-12 |
+| C9 | Noise floor re-measured with the new RNG after 2.8 (references unchanged) | The GPU uses the same PCG sampler, so it should be compared against a floor from that sampler | 2026-11-12 |
+| C10 | Phase 2 is committed one step at a time (Phase 1 was one commit) | Clean checkpoints that are easy to bisect if the GPU port finds a problem | 2026-11-12 |
 
 ---
 
@@ -101,3 +104,18 @@ Entry tags:
 
 - **Finding:** dragon is about 2.5× slower per sample than the other scenes, as expected from its 100k-triangle BVH. It's the scene where Phase 4's BVH work should show most.
 - **Harness:** these rows are stamped `b0bb232+dirty` because Phase 1 wasn't committed when they ran. They match the committed `ae82772` code.
+
+## Phase 2 — make the CPU code GPU-ready (from 2026-11-12)
+
+Exact baseline for steps 2.1–2.7: `out/check/phase1` (git-ignored), saved from the Phase 1 build (`c203b47`, same code as `ae82772`).
+
+### 2.1 — `HD` macro and `inline` (2026-11-12)
+
+- New `Common.h` with the `HD` macro. All 31 functions `pathTrace` reaches are `HD inline`, plus `Ray`'s constructor and `AABB::hit`. CPU-only free functions (`arvoPhi`, `shadeAnalytic`, `shade`, `trace`, `render`, `getSphereBox`, `getTriBox`, `parseScene`, `writePFM`, `pfmPath`) are `inline`. **B3 fixed.**
+- **Harness:** device compile check (C8) added as `tests/devcheck.cu` + `scripts/devcheck.py`. The kernel calls `pathTrace`, so everything it reaches is compiled for the device. The script reports nvcc errors and lists by name each host-only function still called from device code. `--strict` also fails on those, which is the Phase 2 end state.
+- **Finding:** the first device compile failed with 20 errors. `EPS` and `INF` were plain `const float` globals, which nvcc won't read from device code. They're now `constexpr`, with the same values.
+- **Finding:** what's left is 14 distinct host-only functions called from device code, all expected:
+  - `std::mt19937` + `uniform_real_distribution` in `pathTrace`, `sampleHG`, `shadeDirect`, `shadeMIS` and `shadeMISVolume` → removed by 2.8
+  - `std::vector` access to quad lights, BVH nodes, prims, spheres and triangles in `traceBVH`, `traceScene`, `pdfNEE`, `shadeDirect`, `shadeMIS` and `shadeMISVolume` → removed by 2.4/2.5
+- **Finding:** `std::max` and `std::numeric_limits` don't show up, because they're `constexpr` and `--expt-relaxed-constexpr` allows them on the device. Step 2.2 still replaces them (style rule: no `std::` in the hot path), but it isn't needed to compile.
+- **Result:** exact check 8/8 byte-identical. Device compile: no errors, 14 host calls left.
