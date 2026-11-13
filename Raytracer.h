@@ -721,8 +721,11 @@ HD inline vec3 shadeMISVolume(const vec3& p, const vec3& wo, const SceneView& sc
     return col;
 }
 
+// bounce cap - hard limit on path length, also for maxdepth < 0 (longest path seen in the test scenes is 100)
+constexpr int MAX_BOUNCES = 256;
+
 // iterative path tracer with optional NEE/MIS, brdf importance sampling, and russian roulette.
-// maxdepth < 0 means unbounded (only RR can terminate).
+// maxdepth < 0 means unbounded except for MAX_BOUNCES (RR normally ends paths long before).
 HD inline vec3 pathTrace(const Ray& primary, const SceneView& sc, Rng& rng) {
     vec3 L(0);
     vec3 T(1);
@@ -739,7 +742,7 @@ HD inline vec3 pathTrace(const Ray& primary, const SceneView& sc, Rng& rng) {
     // scalar sigma_t for sampling (mean of channels). spectral correction handles the difference.
     float sigma_t_s = (sigma_t.r + sigma_t.g + sigma_t.b) / 3.0f;
 
-    for (int d = 0; infinite || d < sc.maxdepth; d++) {
+    for (int d = 0; d < MAX_BOUNCES && (infinite || d < sc.maxdepth); d++) {
         Hit h = traceScene(ray, sc);
         if (!h.found) break;
         const Material& hm = sc.materials[h.matId];

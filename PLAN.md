@@ -2,7 +2,7 @@
 
 Working plan for porting the VPT path tracer to CUDA: what the code looks like today, the design decisions, each phase's tasks, how each step is checked, and the risks. What actually happened (bugs found, plan changes, results) is logged in `PROGRESS.md`.
 
-Status: **Phase 1 done (2026-11-09): harness, references, validated statistical check, CPU timings (section 8). Phase 2 in progress: 2.1–2.8 done 2026-11-12 (2.3–2.8 benchmarks pending). Next: 2.9 (bounce cap). Exact baseline from 2.9 on: `out/check/phase2-pcg`.** Phases run one at a time, with a review before each.
+Status: **Phase 1 done (2026-11-09): harness, references, validated statistical check, CPU timings (section 8). Phase 2 code complete 2026-11-12 (2.1–2.9). Owed: CPU benchmarks for 2.3–2.9 and the post-Phase-2 timing run (idle machine). Exact baseline: `out/check/phase2-pcg`. Next: Phase 3, after review.** Phases run one at a time, with a review before each.
 
 ---
 

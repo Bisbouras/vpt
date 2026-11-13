@@ -20,7 +20,7 @@ Entry tags:
 | `out/build/x64-Release` (the VS build folder) still has a CMake cache from the project's old location, so it can't configure from here. The scripts use `out/build/cli-release`. Delete that folder's `CMakeCache.txt` and `CMakeFiles/` (save its old renders first if wanted), then rebuild in VS. | 2026-11-09 | Before VS builds are used |
 | `hero`'s statistical check only catches errors of about 5% or more (fireflies survive in its reference). Its code paths are covered more tightly by `cornellScatter`. Since the PCG floor (2.8), `cornellCosine` catches about 2% overall and 10% in one quarter (was 1% and 5%). | 2026-11-09 | Accepted limit |
 | CPU timings for `cornellScatter` and `hero` vary up to 10% between runs (P/E cores). Medians of 5 are used, and min/max are recorded. | 2026-11-09 | Keep in mind when reading small CPU changes |
-| Benchmarks owed, to run interleaved when the machine is idle: 2.3 (`0722b41.exe` vs `a0cef85.exe`), 2.4 (`c6fd115.exe` vs `0722b41.exe`), 2.5 (`a110fc0.exe` vs `c6fd115.exe`), 2.6 (`7fcc5c0.exe` vs `a110fc0.exe`), 2.7 (`b683983.exe` vs `7fcc5c0.exe`), 2.8 (`2.8.exe` vs `b683983.exe`), and optionally 2.1 vs Phase 1 to replace the withdrawn order-biased result. | 2026-11-12 | Before the Phase 2 writeup |
+| Benchmarks owed, to run interleaved when the machine is idle: 2.3 (`0722b41.exe` vs `a0cef85.exe`), 2.4 (`c6fd115.exe` vs `0722b41.exe`), 2.5 (`a110fc0.exe` vs `c6fd115.exe`), 2.6 (`7fcc5c0.exe` vs `a110fc0.exe`), 2.7 (`b683983.exe` vs `7fcc5c0.exe`), 2.8 (`15df063.exe` vs `b683983.exe`), 2.9 (`2.9.exe` vs `15df063.exe`), plus a post-Phase-2 CPU timing run (median of 5, for the timing table), and optionally 2.1 vs Phase 1 to replace the withdrawn order-biased result. | 2026-11-12 | Before the Phase 2 writeup |
 
 ## Bug register
 
@@ -29,7 +29,7 @@ Entry tags:
 | B1 | `done++` in `render()` is a data race under OpenMP. It also printed progress lines from several threads. | Outline (known) | **Fixed** in Phase 1 (`ae82772`): `std::atomic<int>`, printing off with `--quiet` |
 | B2 | `AABB::hit` can produce NaN for axis-aligned rays (0 × inf). CPU and GPU min/max treat NaN differently. | Outline (known) | **Fixed** in 2.6 (`safeInv`). Never triggered in the 8 scenes (0 in about 3.5 billion box tests), but shown to flip hit/miss in a constructed case |
 | B3 | Functions defined in headers aren't `inline`. Linking will fail with duplicate symbols as soon as a second file (`Kernels.cu`) includes them. Latent today. | Phase 0.5 code read | **Fixed** in 2.1 |
-| B4 | No bounce cap for `maxdepth -1`: only Russian roulette ends a path. Fine on the CPU, but on the GPU it means long-tailed warps and a risk of hitting the Windows 2 s kernel timeout. | Phase 0.5 code read | Open → Phase 2.9 (decision D5) |
+| B4 | No bounce cap for `maxdepth -1`: only Russian roulette ends a path. Fine on the CPU, but on the GPU it means long-tailed warps and a risk of hitting the Windows 2 s kernel timeout. | Phase 0.5 code read | **Fixed** in 2.9 (`MAX_BOUNCES = 256`). Longest path seen: 100 bounces in 172 million |
 
 ## Plan changes
 
@@ -218,3 +218,32 @@ Exact baseline for steps 2.1–2.7: `out/check/phase1` (git-ignored), saved from
 - **Result:** check validation repeated against the PCG floor: **0 of 64** fresh-seed renders fail. Detection matches the mt19937 floor except `cornellCosine`: its bias spread came out slightly wider (0.25% vs 0.21%), so ×1.01 overall and ×1.05 in one quarter now pass, while ×1.02, ×0.98, ×1.05 overall and ×1.10 in a quarter are still caught. `hero` is as before (×0.98 and ×1.05 overall only).
 - New exact baseline `out/check/phase2-pcg` for 2.9 onwards, since every image changes at this step. It reproduces itself 8/8.
 - Benchmark pending. The build is kept as `out/check/bin/2.8.exe`. PCG vs mt19937 on the CPU is a speed result worth having.
+- Committed as `15df063`.
+
+### 2.9 — bounce cap (B4) (2026-11-12)
+
+- **Finding:** path lengths measured first, with a scratch build of `15df063` recording each path's bounce count over all 8 scenes at 64 spp: **172 million paths, longest 100 bounces** (`ggx`), 6 paths over 64, none near 256. The tail per scene:
+
+  | Scene | maxdepth | Longest | Paths > 16 | > 32 | > 64 |
+  |---|---|---|---|---|---|
+  | cornellScatter | −1 | 45 | 24,659 | 41 | 0 |
+  | hero | −1 | 21 | 31 | 0 | 0 |
+  | dragon | 5 | 5 | 0 | 0 | 0 |
+  | mis | 1 | 1 | 0 | 0 | 0 |
+  | cornellBRDF | −1 | 41 | 7,804 | 7 | 0 |
+  | cornellCosine | −1 | 27 | 1,406 | 0 | 0 |
+  | cornellFog | −1 | 27 | 258 | 0 | 0 |
+  | ggx | −1 | 100 | 7,074 | 299 | 6 |
+
+- `pathTrace` stops after `MAX_BOUNCES = 256` bounces, also when `maxdepth` is −1 (unbounded) or above 256. **B4 fixed.**
+- **Result:** exact check 8/8 byte-identical against `out/check/phase2-pcg` (as the measurement predicted: no path reached the cap). `devcheck --strict` still clean.
+- **Finding (Phase 4 lead):** with one thread per pixel, a warp of 32 threads runs until its longest path ends. Typical paths in the unbounded scenes are a handful of bounces, but `ggx` has paths up to 100 and `cornellScatter` up to 45, so expect idle threads in those scenes. That's the "threads in the same group taking different branches" item, now with numbers to check against Nsight Compute.
+- Benchmark pending. The build is kept as `out/check/bin/2.9.exe`.
+
+### Phase 2 summary (code complete 2026-11-12)
+
+- The path tracer compiles for the GPU: `devcheck --strict` is clean. Every function `renderPixel` reaches is `HD`, reads the scene through `SceneView` (raw pointers + counts), and draws random numbers from the stateless `Rng`.
+- Steps 2.1–2.7 and 2.9 were byte-identical against their baselines. 2.8 (RNG) changed every image and passed the statistical check, and its noise floor matches mt19937's.
+- Bugs fixed: B2 (ray–box NaN), B3 (header functions not `inline`), B4 (no bounce cap). Plan changes: C8–C13.
+- Measurement lessons: same-session A/B (C11) and interleaved A/B (C12).
+- **Still owed before Phase 3:** the CPU benchmarks for 2.3–2.9 (interleaved, idle machine) and a post-Phase-2 CPU timing run for the timing table. The renderer has no open correctness issues.
