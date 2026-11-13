@@ -20,7 +20,7 @@ Entry tags:
 | `out/build/x64-Release` (the VS build folder) still has a CMake cache from the project's old location, so it can't configure from here. The scripts use `out/build/cli-release`. Delete that folder's `CMakeCache.txt` and `CMakeFiles/` (save its old renders first if wanted), then rebuild in VS. | 2026-11-09 | Before VS builds are used |
 | `hero`'s statistical check only catches errors of about 5% or more (fireflies survive in its reference). Its code paths are covered more tightly by `cornellScatter`. | 2026-11-09 | Accepted limit |
 | CPU timings for `cornellScatter` and `hero` vary up to 10% between runs (P/E cores). Medians of 5 are used, and min/max are recorded. | 2026-11-09 | Keep in mind when reading small CPU changes |
-| Benchmarks owed, to run interleaved when the machine is idle: 2.3 (`out/check/bin/2.3.exe` vs `a0cef85.exe`), and optionally 2.1 vs Phase 1 to replace the withdrawn order-biased result. | 2026-11-12 | Before the Phase 2 writeup |
+| Benchmarks owed, to run interleaved when the machine is idle: 2.3 (`0722b41.exe` vs `a0cef85.exe`), 2.4 (`2.4.exe` vs `0722b41.exe`), and optionally 2.1 vs Phase 1 to replace the withdrawn order-biased result. | 2026-11-12 | Before the Phase 2 writeup |
 
 ## Bug register
 
@@ -167,4 +167,13 @@ Exact baseline for steps 2.1–2.7: `out/check/phase1` (git-ignored), saved from
 
   Unique materials per scene: cornellScatter / cornellBRDF / cornellCosine / cornellFog 5, hero 7, dragon 4, mis 11, ggx 9.
 - **Finding:** in `trace()` (the Whitted integrator), `h` is a local declared after a depth check, so the material reference has to come after the miss check. The first scripted edit put it at the top of the function, and a read of the result caught it before building.
-- Benchmark pending (machine busy). The build is kept as `out/check/bin/2.3.exe`, to A/B against `a0cef85.exe` when the machine is idle.
+- Benchmark pending (machine busy). Committed as `0722b41`, and the build is kept as `out/check/bin/0722b41.exe` to A/B against `a0cef85.exe` when the machine is idle.
+
+### 2.4 — `SceneView` (2026-11-12)
+
+- New `SceneView.h`: a plain struct of raw pointers + counts (spheres, tris, materials, BVH nodes, prims, quad / directional / point lights), plus camera, medium and integrator settings. Field names match `Scene`, so the shading code reads the same. `makeView(scene, bvh)` builds it, pointing into the vectors, which must outlive it.
+- Every function in `Raytracer.h` except `render()` takes `const SceneView& sc` in place of `const BVH& bvh, const Scene& sc`. `render()` keeps its signature and builds the view once. Range-based loops over lights became index loops (`qi` / `li`, because `shadeDirect` already uses `k` for its light samples).
+- **Decision:** directional and point lights (+ `atten`) are in the view too, though only the CPU-only Whitted integrator reads them, so all of `Raytracer.h` takes one scene type. The GPU upload will leave them null.
+- **Result:** exact check 8/8 byte-identical. Device compile clean, and **host calls fell from 15 to 2**: only `std::mt19937` / `uniform_real_distribution` remain, and 2.8 removes them. `tests/devcheck.cu` now passes `SceneView` by value as a kernel argument, the way Phase 3 will.
+- Benchmark pending (machine busy). The build is kept as `out/check/bin/2.4.exe`.
+- **Harness:** when starting 2.5, the 2.4 build was renamed to `<HEAD>.exe` without first checking that 2.4 had been committed. HEAD was still 2.3, so this overwrote the kept 2.3 build. The 2.3 build was rebuilt from `0722b41` with `git archive` (exact check 8/8). Builds are now renamed only after confirming HEAD has moved.

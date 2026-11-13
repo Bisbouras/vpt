@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Scene.h"
-#include "BVH.h"
+#include "SceneView.h"
 #include <algorithm>
 #include <cmath>
 #include <cfloat>
@@ -14,7 +14,7 @@ constexpr float EPS = 1e-4f;
 
 // beer-lambert transmittance over a path of length d through the global medium.
 // componentwise rgb so colored fog works.
-HD inline vec3 transmittance(float d, const Scene& sc) {
+HD inline vec3 transmittance(float d, const SceneView& sc) {
     vec3 sigma_t = sc.globalMedium.sigma_a + sc.globalMedium.sigma_s;
     if (sigma_t == vec3(0)) return vec3(1);
     return glm::exp(-sigma_t * d);
@@ -98,12 +98,12 @@ HD inline Hit hitTriangle(const Ray& ray, const Triangle& tri) {
 }
 
 // traverse BVH to find closest hit
-HD inline Hit traceBVH(const Ray& ray, const BVH& bvh, const Scene& sc, float maxT = FLT_MAX) {
+HD inline Hit traceBVH(const Ray& ray, const SceneView& sc, float maxT = FLT_MAX) {
     Hit closest;
     closest.t = maxT;
     closest.found = false;
 
-    if (bvh.nodes.empty()) return closest;
+    if (sc.numNodes == 0) return closest;
 
     vec3 invd = vec3(1.0f / ray.direction.x, 1.0f / ray.direction.y, 1.0f / ray.direction.z);
 
@@ -114,14 +114,14 @@ HD inline Hit traceBVH(const Ray& ray, const BVH& bvh, const Scene& sc, float ma
 
     while (sp > 0) {
         int ni = stack[--sp];
-        const BVHNode& nd = bvh.nodes[ni];
+        const BVHNode& nd = sc.nodes[ni];
 
         if (!nd.box.hit(ray.origin, invd, closest.t))
             continue;
 
         if (nd.prim >= 0) {
             // leaf
-            const Prim& pr = bvh.prims[nd.prim];
+            const Prim& pr = sc.prims[nd.prim];
             Hit h;
             if (pr.kind == Prim::SPH)
                 h = hitSphere(ray, sc.spheres[pr.idx]);
@@ -139,9 +139,9 @@ HD inline Hit traceBVH(const Ray& ray, const BVH& bvh, const Scene& sc, float ma
     return closest;
 }
 
-HD inline bool shadow(const vec3& pt, const vec3& dir, float maxd, const BVH& bvh, const Scene& sc) {
+HD inline bool shadow(const vec3& pt, const vec3& dir, float maxd, const SceneView& sc) {
     Ray sray(pt + EPS * dir, dir);
-    Hit h = traceBVH(sray, bvh, sc, maxd);
+    Hit h = traceBVH(sray, sc, maxd);
     return h.found;
 }
 
@@ -164,12 +164,13 @@ inline vec3 arvoPhi(const vec3& pt, const vec3 poly[], int n) {
 }
 
 // analytic direct lighting for diffuse (lambertian) surfaces
-inline vec3 shadeAnalytic(const Hit& h, const Scene& sc) {
+inline vec3 shadeAnalytic(const Hit& h, const SceneView& sc) {
     const Material& hm = sc.materials[h.matId];
     vec3 col = hm.emission;
     vec3 n = glm::normalize(h.norm);
 
-    for (auto& q : sc.quadLights) {
+    for (int qi = 0; qi < sc.numQuadLights; qi++) {
+        const QuadLight& q = sc.quadLights[qi];
         // build the 4 corners in order
         vec3 poly[4] = {
             q.a,
@@ -246,7 +247,7 @@ HD inline vec3 evalBRDF(const Material& m, const vec3& wi, const vec3& wo, const
 }
 
 // monte carlo direct lighting with optional stratified sampling
-HD inline vec3 shadeDirect(const Hit& h, const Ray& ray, const BVH& bvh, const Scene& sc,
+HD inline vec3 shadeDirect(const Hit& h, const Ray& ray, const SceneView& sc,
                  std::mt19937& rng) {
     const Material& hm = sc.materials[h.matId];
     vec3 col = hm.emission;
@@ -254,7 +255,8 @@ HD inline vec3 shadeDirect(const Hit& h, const Ray& ray, const BVH& bvh, const S
     vec3 wo = glm::normalize(ray.origin - h.pos);
     std::uniform_real_distribution<float> U(0.0f, 1.0f);
 
-    for (auto& q : sc.quadLights) {
+    for (int qi = 0; qi < sc.numQuadLights; qi++) {
+        const QuadLight& q = sc.quadLights[qi];
         vec3 abxac = glm::cross(q.ab, q.ac);
         vec3 nl = glm::normalize(abxac);
         float A = glm::length(abxac);
@@ -286,7 +288,7 @@ HD inline vec3 shadeDirect(const Hit& h, const Ray& ray, const BVH& bvh, const S
             vec3 wi = toL / R;
 
             // visibility
-            if (shadow(h.pos, wi, R - EPS, bvh, sc)) continue;
+            if (shadow(h.pos, wi, R - EPS, sc)) continue;
 
             float ndotwi = maxf(glm::dot(n, wi), 0.0f);
             float nldotwi = maxf(glm::dot(nl, wi), 0.0f);  // nl already oriented away from scene
@@ -302,16 +304,17 @@ HD inline vec3 shadeDirect(const Hit& h, const Ray& ray, const BVH& bvh, const S
     return col;
 }
 
-inline vec3 shade(const Hit& h, const Ray& ray, const BVH& bvh, const Scene& sc) {
+inline vec3 shade(const Hit& h, const Ray& ray, const SceneView& sc) {
     const Material& hm = sc.materials[h.matId];
     vec3 col = hm.ambient + hm.emission;
     vec3 n = glm::normalize(h.norm);
     vec3 v = glm::normalize(ray.origin - h.pos);
 
     // directional lights
-    for (auto& l : sc.dirLights) {
+    for (int li = 0; li < sc.numDirLights; li++) {
+        const DirLight& l = sc.dirLights[li];
         vec3 ld = glm::normalize(l.dir);
-        if (shadow(h.pos, ld, FLT_MAX, bvh, sc)) continue;
+        if (shadow(h.pos, ld, FLT_MAX, sc)) continue;
 
         float ndl = std::max(glm::dot(n, ld), 0.0f);
         col += hm.diffuse * l.col * ndl;
@@ -324,12 +327,13 @@ inline vec3 shade(const Hit& h, const Ray& ray, const BVH& bvh, const Scene& sc)
     }
 
     // point lights
-    for (auto& l : sc.ptLights) {
+    for (int li = 0; li < sc.numPtLights; li++) {
+        const PointLight& l = sc.ptLights[li];
         vec3 toL = l.pos - h.pos;
         float dist = glm::length(toL);
         vec3 ld = glm::normalize(toL);
 
-        if (shadow(h.pos, ld, dist, bvh, sc)) continue;
+        if (shadow(h.pos, ld, dist, sc)) continue;
 
         // attenuation (default 1,0,0 = no falloff)
         float att = 1.0f / (sc.atten.x + sc.atten.y * dist + sc.atten.z * dist * dist);
@@ -347,26 +351,26 @@ inline vec3 shade(const Hit& h, const Ray& ray, const BVH& bvh, const Scene& sc)
 }
 
 // recursive raytrace with mirror reflection
-inline vec3 trace(const Ray& ray, const BVH& bvh, const Scene& sc, int depth) {
+inline vec3 trace(const Ray& ray, const SceneView& sc, int depth) {
     if (depth <= 0) return vec3(0);
 
-    Hit h = traceBVH(ray, bvh, sc);
+    Hit h = traceBVH(ray, sc);
     if (!h.found) return vec3(0);
     const Material& hm = sc.materials[h.matId];
 
-    vec3 col = shade(h, ray, bvh, sc);
+    vec3 col = shade(h, ray, sc);
 
     // reflection
     if (hm.specular != vec3(0) && depth > 0) {
         vec3 rdir = glm::reflect(ray.direction, glm::normalize(h.norm));
         Ray rray(h.pos + EPS * rdir, rdir);
-        col += hm.specular * trace(rray, bvh, sc, depth - 1);
+        col += hm.specular * trace(rray, sc, depth - 1);
     }
 
     return col;
 }
 
-HD inline Ray makeRay(float px, float py, const Scene& sc) {
+HD inline Ray makeRay(float px, float py, const SceneView& sc) {
     float aspect = (float)sc.w / (float)sc.h;
     float fovyr = glm::radians(sc.fovy);
     float fovxr = 2.0f * atanf(tanf(fovyr / 2.0f) * aspect);
@@ -401,10 +405,10 @@ HD inline bool hitQuad(const Ray& ray, const QuadLight& q, float& tOut) {
 // like traceBVH but also intersects quad lights, synthesizing a Hit with
 // emission set. for primary + indirect rays in the path tracer.
 // shadow rays still use traceBVH (the light shouldn't shadow itself).
-HD inline Hit traceScene(const Ray& ray, const BVH& bvh, const Scene& sc, float maxT = FLT_MAX) {
-    Hit closest = traceBVH(ray, bvh, sc, maxT);
+HD inline Hit traceScene(const Ray& ray, const SceneView& sc, float maxT = FLT_MAX) {
+    Hit closest = traceBVH(ray, sc, maxT);
 
-    for (size_t k = 0; k < sc.quadLights.size(); k++) {
+    for (int k = 0; k < sc.numQuadLights; k++) {
         float t;
         if (hitQuad(ray, sc.quadLights[k], t) && t < closest.t && t > EPS) {
             closest.found = true;
@@ -535,24 +539,24 @@ HD inline float pdfLightK(const vec3& pos, const vec3& wi, const QuadLight& q) {
 }
 
 // nee pdf averaged over all quad lights
-HD inline float pdfNEE(const vec3& pos, const vec3& wi, const Scene& sc) {
-    int n = (int)sc.quadLights.size();
+HD inline float pdfNEE(const vec3& pos, const vec3& wi, const SceneView& sc) {
+    int n = sc.numQuadLights;
     if (n == 0) return 0;
     float sum = 0;
-    for (auto& q : sc.quadLights) sum += pdfLightK(pos, wi, q);
+    for (int qi = 0; qi < sc.numQuadLights; qi++) sum += pdfLightK(pos, wi, sc.quadLights[qi]);
     return sum / (float)n;
 }
 
 // multi-sample mis direct lighting with power heuristic (beta = 2).
 // uses one nee sample per light plus one brdf sample. caller adds the hit material's emission.
-HD inline vec3 shadeMIS(const Hit& h, const Ray& ray, const BVH& bvh, const Scene& sc,
+HD inline vec3 shadeMIS(const Hit& h, const Ray& ray, const SceneView& sc,
               std::mt19937& rng) {
     const Material& hm = sc.materials[h.matId];
     vec3 col(0);
     vec3 n = glm::normalize(h.norm);
     vec3 wo = glm::normalize(ray.origin - h.pos);
     std::uniform_real_distribution<float> U(0.0f, 1.0f);
-    int nlights = (int)sc.quadLights.size();
+    int nlights = sc.numQuadLights;
 
     // nee technique: one sample per light, weighted by w_nee
     for (int k = 0; k < nlights; k++) {
@@ -571,7 +575,7 @@ HD inline vec3 shadeMIS(const Hit& h, const Ray& ray, const BVH& bvh, const Scen
         float ndotwi = glm::dot(n, wi);
         float nldotwi = fabs(glm::dot(nl, wi));
         if (ndotwi <= 0 || nldotwi < 1e-8f) continue;
-        if (shadow(h.pos, wi, R - EPS, bvh, sc)) continue;
+        if (shadow(h.pos, wi, R - EPS, sc)) continue;
 
         float pdfNee = pdfNEE(h.pos, wi, sc);
         if (pdfNee <= 0) continue;
@@ -595,7 +599,7 @@ HD inline vec3 shadeMIS(const Hit& h, const Ray& ray, const BVH& bvh, const Scen
         if (pdfBrdf > 1e-8f) {
             // does the brdf ray reach a light unobstructed?
             Ray sr(h.pos + EPS * wi, wi);
-            Hit geomHit = traceBVH(sr, bvh, sc);
+            Hit geomHit = traceBVH(sr, sc);
             float geomT = geomHit.found ? geomHit.t : FLT_MAX;
             int qhit = -1;
             float qt = geomT;
@@ -656,11 +660,11 @@ HD inline vec3 sampleHG(const vec3& wo, float g, std::mt19937& rng, float& pdf) 
 // mis direct lighting at a medium scattering vertex.
 // same structure as shadeMIS but with the phase function in place of the BRDF and
 // no surface normal / cosine factor.
-HD inline vec3 shadeMISVolume(const vec3& p, const vec3& wo, const BVH& bvh, const Scene& sc,
+HD inline vec3 shadeMISVolume(const vec3& p, const vec3& wo, const SceneView& sc,
                     std::mt19937& rng) {
     vec3 col(0);
     std::uniform_real_distribution<float> U(0.0f, 1.0f);
-    int nlights = (int)sc.quadLights.size();
+    int nlights = sc.numQuadLights;
     float g = sc.globalMedium.g;
 
     // nee: one sample per light
@@ -679,7 +683,7 @@ HD inline vec3 shadeMISVolume(const vec3& p, const vec3& wo, const BVH& bvh, con
 
         float nldotwi = fabs(glm::dot(nl, wi));
         if (nldotwi < 1e-8f) continue;
-        if (shadow(p, wi, R - EPS, bvh, sc)) continue;
+        if (shadow(p, wi, R - EPS, sc)) continue;
 
         float pdfNee = pdfNEE(p, wi, sc);
         if (pdfNee <= 0) continue;
@@ -699,7 +703,7 @@ HD inline vec3 shadeMISVolume(const vec3& p, const vec3& wo, const BVH& bvh, con
     vec3 wi = sampleHG(wo, g, rng, pdfPh);
     if (pdfPh > 1e-8f) {
         Ray sr(p + EPS * wi, wi);
-        Hit geomHit = traceBVH(sr, bvh, sc);
+        Hit geomHit = traceBVH(sr, sc);
         float geomT = geomHit.found ? geomHit.t : FLT_MAX;
         int qhit = -1;
         float qt = geomT;
@@ -724,7 +728,7 @@ HD inline vec3 shadeMISVolume(const vec3& p, const vec3& wo, const BVH& bvh, con
 
 // iterative path tracer with optional NEE/MIS, brdf importance sampling, and russian roulette.
 // maxdepth < 0 means unbounded (only RR can terminate).
-HD inline vec3 pathTrace(const Ray& primary, const BVH& bvh, const Scene& sc, std::mt19937& rng) {
+HD inline vec3 pathTrace(const Ray& primary, const SceneView& sc, std::mt19937& rng) {
     std::uniform_real_distribution<float> U(0.0f, 1.0f);
     vec3 L(0);
     vec3 T(1);
@@ -742,7 +746,7 @@ HD inline vec3 pathTrace(const Ray& primary, const BVH& bvh, const Scene& sc, st
     float sigma_t_s = (sigma_t.r + sigma_t.g + sigma_t.b) / 3.0f;
 
     for (int d = 0; infinite || d < sc.maxdepth; d++) {
-        Hit h = traceScene(ray, bvh, sc);
+        Hit h = traceScene(ray, sc);
         if (!h.found) break;
         const Material& hm = sc.materials[h.matId];
 
@@ -762,7 +766,7 @@ HD inline vec3 pathTrace(const Ray& primary, const BVH& bvh, const Scene& sc, st
 
                 // direct light estimator at the scatter vertex
                 if (anyDirect) {
-                    L += T * shadeMISVolume(scatterPos, woVol, bvh, sc, rng);
+                    L += T * shadeMISVolume(scatterPos, woVol, sc, rng);
                 }
 
                 bool lastHop = !infinite && (d == sc.maxdepth - 1);
@@ -809,9 +813,9 @@ HD inline vec3 pathTrace(const Ray& primary, const BVH& bvh, const Scene& sc, st
         // direct light estimator at this vertex
         if (useNEE) {
             // shadeDirect adds hm.emission as col init, so subtract it here
-            L += T * (shadeDirect(h, ray, bvh, sc, rng) - hm.emission);
+            L += T * (shadeDirect(h, ray, sc, rng) - hm.emission);
         } else if (useMIS) {
-            L += T * shadeMIS(h, ray, bvh, sc, rng);
+            L += T * shadeMIS(h, ray, sc, rng);
         }
 
         // last bounce: stop before sampling next direction
@@ -870,6 +874,7 @@ HD inline vec3 pathTrace(const Ray& primary, const BVH& bvh, const Scene& sc, st
 
 // accum gets the linear colour before clamp and gamma, pixels the 8-bit output
 inline void render(const Scene& sc, const BVH& bvh, unsigned char* pixels, vec3* accum, bool quiet) {
+    const SceneView v = makeView(sc, bvh);
     int total = sc.w * sc.h;
     std::atomic<int> done(0);
     // seed - per-pixel seeds of different seed values never overlap
@@ -878,7 +883,7 @@ inline void render(const Scene& sc, const BVH& bvh, unsigned char* pixels, vec3*
     #pragma omp parallel for schedule(dynamic, 1)
     for (int j = 0; j < sc.h; j++) {
         for (int i = 0; i < sc.w; i++) {
-            Ray ray = makeRay(i + 0.5f, j + 0.5f, sc);
+            Ray ray = makeRay(i + 0.5f, j + 0.5f, v);
             vec3 col(0);
 
             if (sc.integrator == PATHTRACER) {
@@ -889,13 +894,13 @@ inline void render(const Scene& sc, const BVH& bvh, unsigned char* pixels, vec3*
                     // first sample at pixel center for spp=1 backward compat
                     float dx = (s == 0) ? 0.5f : U(rng);
                     float dy = (s == 0) ? 0.5f : U(rng);
-                    Ray pr = makeRay(i + dx, j + dy, sc);
-                    acc += pathTrace(pr, bvh, sc, rng);
+                    Ray pr = makeRay(i + dx, j + dy, v);
+                    acc += pathTrace(pr, v, rng);
                 }
                 col = acc / (float)sc.spp;
             }
             else if (sc.integrator == RAYTRACER) {
-                col = trace(ray, bvh, sc, sc.maxdepth);
+                col = trace(ray, v, sc.maxdepth);
             } else {
                 // check quad light visibility (primary ray only)
                 float tq = FLT_MAX;
@@ -908,16 +913,16 @@ inline void render(const Scene& sc, const BVH& bvh, unsigned char* pixels, vec3*
                     }
                 }
 
-                Hit h = traceBVH(ray, bvh, sc);
+                Hit h = traceBVH(ray, v);
 
                 if (qhit >= 0 && (!h.found || tq < h.t)) {
                     col = sc.quadLights[qhit].intensity;
                 } else if (h.found) {
                     if (sc.integrator == ANALYTICDIRECT) {
-                        col = shadeAnalytic(h, sc);
+                        col = shadeAnalytic(h, v);
                     } else {
                         std::mt19937 rng(seedBase + (unsigned)(j * sc.w + i));
-                        col = shadeDirect(h, ray, bvh, sc, rng);
+                        col = shadeDirect(h, ray, v, rng);
                     }
                 }
             }

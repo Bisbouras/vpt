@@ -2,7 +2,7 @@
 
 Working plan for porting the VPT path tracer to CUDA: what the code looks like today, the design decisions, each phase's tasks, how each step is checked, and the risks. What actually happened (bugs found, plan changes, results) is logged in `PROGRESS.md`.
 
-Status: **Phase 1 done (2026-11-09): harness, references, validated statistical check, CPU timings (section 8). Phase 2 in progress: 2.1–2.3 done 2026-11-12 (2.3 benchmark pending). Next: 2.4.** Phases run one at a time, with a review before each.
+Status: **Phase 1 done (2026-11-09): harness, references, validated statistical check, CPU timings (section 8). Phase 2 in progress: 2.1–2.4 done 2026-11-12 (2.3 and 2.4 benchmarks pending). Next: 2.5.** Phases run one at a time, with a review before each.
 
 ---
 
@@ -301,7 +301,7 @@ PERF_LOG.md        phase 4 log
 Common.h           HD macro, small maths helpers, FLT_MAX use
 Image.h            pfm writer, output pass
 Rng.h              pcg hash sampler (phase 2.8)
-SceneView.h        raw-pointer scene view + builder (phase 2.4)
+SceneView.h        raw-pointer scene view + makeView (phase 2.4)
 CudaCheck.h        CUDA_CHECK macro (phase 3)
 GpuRender.h        host-facing gpu entry point (phase 3)
 Kernels.cu         device upload, kernel, launch loop (phase 3)
