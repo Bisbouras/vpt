@@ -2,7 +2,7 @@
 
 Working plan for porting the VPT path tracer to CUDA: what the code looks like today, the design decisions, each phase's tasks, how each step is checked, and the risks. What actually happened (bugs found, plan changes, results) is logged in `PROGRESS.md`.
 
-Status: **Phase 1 done (2026-11-09): harness, references, validated statistical check, CPU timings (section 8). Phase 3 done 2026-11-13: `--gpu` passes the statistical check 8/8, memcheck is clean, and GPU v1 is 5.0–37× the 20-thread CPU (timing table, section 8). Next: Phase 4 (profile and optimise), after review. Needs the `ncu` counter permission first (`PROGRESS.md` open items).** Phases run one at a time, with a review before each.
+Status: **Phase 1 done (2026-11-09): harness, references, validated statistical check, CPU timings (section 8). Phase 3 done 2026-11-13: `--gpu` passes the statistical check 8/8, memcheck is clean, and GPU v1 is 5.0–37× the 20-thread CPU (timing table, section 8). Next: Phase 4 (profile and optimise), after review. `ncu` counter permission enabled 2026-11-13.** Phases run one at a time, with a review before each.
 
 ---
 

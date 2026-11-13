@@ -16,7 +16,7 @@ Entry tags:
 
 | Item | Since | Needed by |
 |---|---|---|
-| `ncu` can't read GPU performance counters (`ERR_NVGPUCTRPERM`). Enable "Allow access to all users" under NVIDIA Control Panel → Developer → Manage GPU Performance Counters, or run `ncu` as admin. | 2026-11-09 | Phase 4 |
+| GPU performance counters are open to all users (enabled 2026-11-13 so `ncu` works without admin; confirmed with one `renderKernel` profile). Switch back to admin-only (NVIDIA Control Panel → Developer → Manage GPU Performance Counters) when Phase 4 profiling is done, since open counters allow the GPU side channel of CVE-2018-6260. | 2026-11-13 | After Phase 4 |
 | `out/build/x64-Release` (the VS build folder) still has a CMake cache from the project's old location, so it can't configure from here. The scripts use `out/build/cli-release`. Delete that folder's `CMakeCache.txt` and `CMakeFiles/` (save its old renders first if wanted), then rebuild in VS. | 2026-11-09 | Before VS builds are used |
 | `hero`'s statistical check only catches errors of about 5% or more (fireflies survive in its reference). Its code paths are covered more tightly by `cornellScatter`. Since the PCG floor (2.8), `cornellCosine` catches about 2% overall and 10% in one quarter (was 1% and 5%). | 2026-11-09 | Accepted limit |
 | CPU timings for `cornellScatter` and `hero` vary up to 10% between runs (P/E cores). Medians of 5 are used, and min/max are recorded. | 2026-11-09 | Keep in mind when reading small CPU changes |
@@ -327,4 +327,5 @@ All builds were first re-verified against their exact baselines (8/8 each). Then
   - **cornellScatter (5.0×):** a scattering medium. Each thread randomly decides between a surface hit and a volume scatter event, paths run up to 45 bounces (2.9), and every bounce traverses the BVH. Expect warp divergence and idle lanes, which is the first thing to check in Nsight Compute.
   - **dragon (5.5×):** BVH traversal over 100k triangles, with one primitive per leaf, a median-split tree and a 64-entry stack in local memory. Expect memory-bound traversal: node layout, SAH and near-child-first traversal are the Phase 4 candidates.
   - **hero (7.1×):** a medium too, but thinner (σ_t ≈ 0.1) and most paths short (longest 21).
+- **Environment:** GPU performance counters opened to all users, so `ncu` works without admin. First reading, one `renderKernel` launch on mis at 1 spp: **120 registers per thread**, SM throughput 59.6%, memory throughput 45.2%. 120 registers limits how many warps fit on each SM, so register pressure is a likely first Phase 4 item.
 - **Result:** Phase 3's done criteria are met: GPU output passes the statistical check (3.1), memcheck is clean (3.1), and the CPU and GPU v1 columns of the timing table are filled in (`PLAN.md` section 8, same session).
