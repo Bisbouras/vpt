@@ -2,7 +2,7 @@
 
 Working plan for porting the VPT path tracer to CUDA: what the code looks like today, the design decisions, each phase's tasks, how each step is checked, and the risks. What actually happened (bugs found, plan changes, results) is logged in `PROGRESS.md`.
 
-Status: **Phase 1 done (2026-11-09): harness, references, validated statistical check, CPU timings (section 8). Phase 2 code complete 2026-11-12 (2.1–2.9). Owed: CPU benchmarks for 2.3–2.9 and the post-Phase-2 timing run (idle machine). Exact baseline: `out/check/phase2-pcg`. Next: Phase 3, after review.** Phases run one at a time, with a review before each.
+Status: **Phase 1 done (2026-11-09): harness, references, validated statistical check, CPU timings (section 8). Phase 2 done 2026-11-12 (2.1–2.9, benchmarked): the path tracer compiles for the GPU, and the CPU is 6–7% faster than Phase 1. Exact baseline: `out/check/phase2-pcg`. Next: Phase 3, after review.** Phases run one at a time, with a review before each.
 
 ---
 
@@ -271,7 +271,7 @@ Done when: all of the above pass and the **GPU column** of the timing table is f
 | dragon | 640×480 | 128 | 12851 (3.1 Ms/s) | | | | 0.0224 / |
 | mis | 768×512 | 128 | 5874 (8.6 Ms/s) | | | | 0.0110 / |
 
-The final CPU column gets re-measured in the same session as the GPU numbers (C11). Today's values are the 2026-11-09 baseline. CPU column: Phase 1 build, i7-12700KF, 20 threads, median of 5 runs after 1 warm-up, render only (parse + BVH excluded; dragon adds 192 ms parse + 79 ms BVH). Run-to-run spread: dragon and mis within 1–2%; cornellScatter and hero up to 10%, likely from the mix of P and E cores. Raw rows in `bench/results.csv`. Ms/s = million samples (paths) per second. CPU FLIP is the 16-seed noise-floor mean.
+The final CPU column gets re-measured in the same session as the GPU numbers (C11). The values below are the 2026-11-09 Phase 1 baseline. End of Phase 2, measured 2026-11-12 in the same session as Phase 1 (`PROGRESS.md`): cornellScatter 3734 ms, hero 8840 ms, dragon 10323 ms, mis 5056 ms, 6–7% faster than Phase 1 that day. CPU column: Phase 1 build, i7-12700KF, 20 threads, median of 5 runs after 1 warm-up, render only (parse + BVH excluded; dragon adds 192 ms parse + 79 ms BVH). Run-to-run spread: dragon and mis within 1–2%; cornellScatter and hero up to 10%, likely from the mix of P and E cores. Raw rows in `bench/results.csv`. Ms/s = million samples (paths) per second. CPU FLIP is the 16-seed noise-floor mean.
 
 - Writeup draft (markdown here, when asked): approach, harness and validation method, CPU vs GPU table, profile findings, the change-by-change log, image comparisons, what's left.
 

@@ -20,7 +20,6 @@ Entry tags:
 | `out/build/x64-Release` (the VS build folder) still has a CMake cache from the project's old location, so it can't configure from here. The scripts use `out/build/cli-release`. Delete that folder's `CMakeCache.txt` and `CMakeFiles/` (save its old renders first if wanted), then rebuild in VS. | 2026-11-09 | Before VS builds are used |
 | `hero`'s statistical check only catches errors of about 5% or more (fireflies survive in its reference). Its code paths are covered more tightly by `cornellScatter`. Since the PCG floor (2.8), `cornellCosine` catches about 2% overall and 10% in one quarter (was 1% and 5%). | 2026-11-09 | Accepted limit |
 | CPU timings for `cornellScatter` and `hero` vary up to 10% between runs (P/E cores). Medians of 5 are used, and min/max are recorded. | 2026-11-09 | Keep in mind when reading small CPU changes |
-| Benchmarks owed, to run interleaved when the machine is idle: 2.3 (`0722b41.exe` vs `a0cef85.exe`), 2.4 (`c6fd115.exe` vs `0722b41.exe`), 2.5 (`a110fc0.exe` vs `c6fd115.exe`), 2.6 (`7fcc5c0.exe` vs `a110fc0.exe`), 2.7 (`b683983.exe` vs `7fcc5c0.exe`), 2.8 (`15df063.exe` vs `b683983.exe`), 2.9 (`2.9.exe` vs `15df063.exe`), plus a post-Phase-2 CPU timing run (median of 5, for the timing table), and optionally 2.1 vs Phase 1 to replace the withdrawn order-biased result. | 2026-11-12 | Before the Phase 2 writeup |
 
 ## Bug register
 
@@ -133,7 +132,7 @@ Exact baseline for steps 2.1–2.7: `out/check/phase1` (git-ignored), saved from
   | dragon | 11509 ms | 11353 ms | −1.3% |
   | mis | 5545 ms | 5416 ms | −2.3% |
 
-  **Result (withdrawn, see 2.2):** this A/B ran the builds one after the other, with Phase 1 second, and 2.2 showed that the second build in such a run comes out slower. So the "2.1 is about 2% faster" reading is not trustworthy. An interleaved re-run is needed before any 2.1 speed-up can be claimed. Most of the gap to the 2026-11-09 baseline is the machine: the identical Phase 1 code runs 6–10% faster today. Timings from different sessions can't be compared (C11).
+  **Result (withdrawn, see 2.2):** this A/B ran the builds one after the other, with Phase 1 second, and 2.2 showed that the second build in such a run comes out slower. So the "2.1 is about 2% faster" reading is not trustworthy. The interleaved re-run (see Phase 2 benchmarks) found no clear effect. Most of the gap to the 2026-11-09 baseline is the machine: the identical Phase 1 code runs 6–10% faster today. Timings from different sessions can't be compared (C11).
 - **Harness:** `bench.py` gained `--commit`, to stamp rows from a binary that isn't HEAD (A/B runs). The `+dirty` flag now looks only at renderer source (`*.h`, `*.cpp`, `*.cu`, `CMakeLists.txt`), because appending to `bench/results.csv` made every later run "dirty". The 2.1 rows were corrected from `7beb909+dirty` to `7beb909`.
 
 ### 2.2 — no STL in the hot path (2026-11-12)
@@ -247,3 +246,31 @@ Exact baseline for steps 2.1–2.7: `out/check/phase1` (git-ignored), saved from
 - Bugs fixed: B2 (ray–box NaN), B3 (header functions not `inline`), B4 (no bounce cap). Plan changes: C8–C13.
 - Measurement lessons: same-session A/B (C11) and interleaved A/B (C12).
 - **Still owed before Phase 3:** the CPU benchmarks for 2.3–2.9 (interleaved, idle machine) and a post-Phase-2 CPU timing run for the timing table. The renderer has no open correctness issues.
+
+### Phase 2 benchmarks (2026-11-12, 22:41–23:35)
+
+All builds were first re-verified against their exact baselines (8/8 each). Then 9 interleaved A/B runs (`bench.py --base`, 1 warm-up + 5 runs each per build, 128 spp), one after another on an idle machine. Change in median render time against the previous step (negative = faster). \* = the two builds' min/max ranges don't overlap:
+
+| Step | cornellScatter | hero | dragon | mis |
+|---|---|---|---|---|
+| 2.1 HD + inline (recheck, vs Phase 1) | −0.8% | −2.6% | −0.4% | −1.3% |
+| 2.3 material indices | −0.1% | −2.3%\* | −0.6% | −0.1% |
+| 2.4 SceneView | −1.1% | −0.2% | −1.1% | −1.8%\* |
+| 2.5 BVH leaves index prims directly | +0.0% | −1.0%\* | **−3.9%\*** | +0.4% |
+| 2.6 ray–box NaN fix | −0.1% | −0.7% | −0.9%\* | −1.4% |
+| 2.7 renderPixel + output pass | −1.1% | +0.8% | +0.7% | −3.2% |
+| 2.8 PCG RNG | **−5.2%\*** | −1.9% | −0.7% | −1.3% |
+| 2.9 bounce cap | −0.3% | +0.1% | −1.0% | −0.4% |
+| **Phase 2 total (Phase 1 vs `183b237`)** | **−7.3%\*** | **−5.9%\*** | **−7.4%\*** | **−6.3%\*** |
+
+(2.2 was measured on its own, interleaved: +0.1% to +0.9%, no change.)
+
+- **Result:** Phase 2 made the CPU renderer **6–7% faster on every scene**, clearly outside the noise, even though no step aimed at CPU speed.
+- **Result:** the steps that stand out have a clear mechanism:
+  - **2.8 PCG on cornellScatter, −5.2%:** that scene draws the most random numbers per path (free-flight sampling and phase sampling in the medium), and a few integer multiplies are cheaper than mt19937 plus `uniform_real_distribution`.
+  - **2.5 on dragon, −3.9%:** dropping the per-leaf `Prim` load and storing triangles in leaf order matters most in the 100k-triangle scene.
+  - **2.3 on hero, −2.3%:** the smaller `Hit` (92 → 36 B) is copied on every closest-hit update.
+  - The other steps are within about ±1%, as expected for pure refactors.
+- **Result:** the 2.1 recheck, now interleaved, gives −0.4% to −2.6% with all ranges overlapping. So 2.1 has no clear effect, which replaces the withdrawn "2% faster" claim.
+- **Finding:** the step-by-step changes roughly add up to the total (e.g. cornellScatter −8.7% summed vs −7.3% measured directly), which suggests the per-step numbers are consistent. Only the direct Phase 1 vs Phase 2 comparison is used as the headline.
+- End-of-Phase-2 CPU timings (same session as the total): cornellScatter 3734 ms (7.90 Ms/s), hero 8840 ms (9.27 Ms/s), dragon 10323 ms (3.81 Ms/s), mis 5056 ms (9.96 Ms/s).
