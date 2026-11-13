@@ -62,7 +62,7 @@ HD inline Hit hitSphere(const Ray& ray, const Sphere& sph) {
     res.t = t;
     res.pos = ray.origin + t * ray.direction;
     res.norm = nWorld;
-    res.mat = sph.mat;
+    res.matId = sph.matId;
     return res;
 }
 
@@ -93,7 +93,7 @@ HD inline Hit hitTriangle(const Ray& ray, const Triangle& tri) {
     res.t = t;
     res.pos = ray.origin + t * ray.direction;
     res.norm = tri.normal;
-    res.mat = tri.mat;
+    res.matId = tri.matId;
     return res;
 }
 
@@ -165,7 +165,8 @@ inline vec3 arvoPhi(const vec3& pt, const vec3 poly[], int n) {
 
 // analytic direct lighting for diffuse (lambertian) surfaces
 inline vec3 shadeAnalytic(const Hit& h, const Scene& sc) {
-    vec3 col = h.mat.emission;
+    const Material& hm = sc.materials[h.matId];
+    vec3 col = hm.emission;
     vec3 n = glm::normalize(h.norm);
 
     for (auto& q : sc.quadLights) {
@@ -179,7 +180,7 @@ inline vec3 shadeAnalytic(const Hit& h, const Scene& sc) {
         vec3 phi = arvoPhi(h.pos, poly, 4);
         float irr = glm::dot(phi, n);
         if (irr < 0) irr = -irr;  // handle winding
-        col += (h.mat.diffuse / glm::pi<float>()) * q.intensity * irr;
+        col += (hm.diffuse / glm::pi<float>()) * q.intensity * irr;
     }
     return col;
 }
@@ -247,7 +248,8 @@ HD inline vec3 evalBRDF(const Material& m, const vec3& wi, const vec3& wo, const
 // monte carlo direct lighting with optional stratified sampling
 HD inline vec3 shadeDirect(const Hit& h, const Ray& ray, const BVH& bvh, const Scene& sc,
                  std::mt19937& rng) {
-    vec3 col = h.mat.emission;
+    const Material& hm = sc.materials[h.matId];
+    vec3 col = hm.emission;
     vec3 n = glm::normalize(h.norm);
     vec3 wo = glm::normalize(ray.origin - h.pos);
     std::uniform_real_distribution<float> U(0.0f, 1.0f);
@@ -291,7 +293,7 @@ HD inline vec3 shadeDirect(const Hit& h, const Ray& ray, const BVH& bvh, const S
 
             if (ndotwi <= 0 || nldotwi <= 0) continue;
 
-            vec3 f = evalBRDF(h.mat, wi, wo, n);
+            vec3 f = evalBRDF(hm, wi, wo, n);
             float G = (ndotwi * nldotwi) / (R * R);
             sum += f * G * transmittance(R, sc);
         }
@@ -301,7 +303,8 @@ HD inline vec3 shadeDirect(const Hit& h, const Ray& ray, const BVH& bvh, const S
 }
 
 inline vec3 shade(const Hit& h, const Ray& ray, const BVH& bvh, const Scene& sc) {
-    vec3 col = h.mat.ambient + h.mat.emission;
+    const Material& hm = sc.materials[h.matId];
+    vec3 col = hm.ambient + hm.emission;
     vec3 n = glm::normalize(h.norm);
     vec3 v = glm::normalize(ray.origin - h.pos);
 
@@ -311,13 +314,13 @@ inline vec3 shade(const Hit& h, const Ray& ray, const BVH& bvh, const Scene& sc)
         if (shadow(h.pos, ld, FLT_MAX, bvh, sc)) continue;
 
         float ndl = std::max(glm::dot(n, ld), 0.0f);
-        col += h.mat.diffuse * l.col * ndl;
+        col += hm.diffuse * l.col * ndl;
 
         // blinn-phong specular
         vec3 half = glm::normalize(ld + v);
         float ndh = std::max(glm::dot(n, half), 0.0f);
         if (ndl > 0)
-            col += h.mat.specular * l.col * powf(ndh, h.mat.shininess);
+            col += hm.specular * l.col * powf(ndh, hm.shininess);
     }
 
     // point lights
@@ -332,12 +335,12 @@ inline vec3 shade(const Hit& h, const Ray& ray, const BVH& bvh, const Scene& sc)
         float att = 1.0f / (sc.atten.x + sc.atten.y * dist + sc.atten.z * dist * dist);
 
         float ndl = std::max(glm::dot(n, ld), 0.0f);
-        col += h.mat.diffuse * l.col * ndl * att;
+        col += hm.diffuse * l.col * ndl * att;
 
         vec3 half = glm::normalize(ld + v);
         float ndh = std::max(glm::dot(n, half), 0.0f);
         if (ndl > 0)
-            col += h.mat.specular * l.col * powf(ndh, h.mat.shininess) * att;
+            col += hm.specular * l.col * powf(ndh, hm.shininess) * att;
     }
 
     return col;
@@ -349,14 +352,15 @@ inline vec3 trace(const Ray& ray, const BVH& bvh, const Scene& sc, int depth) {
 
     Hit h = traceBVH(ray, bvh, sc);
     if (!h.found) return vec3(0);
+    const Material& hm = sc.materials[h.matId];
 
     vec3 col = shade(h, ray, bvh, sc);
 
     // reflection
-    if (h.mat.specular != vec3(0) && depth > 0) {
+    if (hm.specular != vec3(0) && depth > 0) {
         vec3 rdir = glm::reflect(ray.direction, glm::normalize(h.norm));
         Ray rray(h.pos + EPS * rdir, rdir);
-        col += h.mat.specular * trace(rray, bvh, sc, depth - 1);
+        col += hm.specular * trace(rray, bvh, sc, depth - 1);
     }
 
     return col;
@@ -409,8 +413,7 @@ HD inline Hit traceScene(const Ray& ray, const BVH& bvh, const Scene& sc, float 
             vec3 nl = glm::normalize(glm::cross(sc.quadLights[k].ab, sc.quadLights[k].ac));
             if (glm::dot(nl, ray.direction) > 0) nl = -nl;
             closest.norm = nl;
-            closest.mat = Material{};
-            closest.mat.emission = sc.quadLights[k].intensity;
+            closest.matId = sc.quadLights[k].matId;
         }
     }
 
@@ -541,9 +544,10 @@ HD inline float pdfNEE(const vec3& pos, const vec3& wi, const Scene& sc) {
 }
 
 // multi-sample mis direct lighting with power heuristic (beta = 2).
-// uses one nee sample per light plus one brdf sample. caller adds h.mat.emission.
+// uses one nee sample per light plus one brdf sample. caller adds the hit material's emission.
 HD inline vec3 shadeMIS(const Hit& h, const Ray& ray, const BVH& bvh, const Scene& sc,
               std::mt19937& rng) {
+    const Material& hm = sc.materials[h.matId];
     vec3 col(0);
     vec3 n = glm::normalize(h.norm);
     vec3 wo = glm::normalize(ray.origin - h.pos);
@@ -571,23 +575,23 @@ HD inline vec3 shadeMIS(const Hit& h, const Ray& ray, const BVH& bvh, const Scen
 
         float pdfNee = pdfNEE(h.pos, wi, sc);
         if (pdfNee <= 0) continue;
-        float pdfBrdf = pdfBRDFDir(h.mat, wi, wo, n);
+        float pdfBrdf = pdfBRDFDir(hm, wi, wo, n);
 
         // power heuristic with sample counts: w_i = (N_i pdf_i)^2 / sum (N_k pdf_k)^2
         // N_nee = nlights, N_brdf = 1
         float wn = (float)nlights * pdfNee;
         float w = (wn * wn) / (wn * wn + pdfBrdf * pdfBrdf);
-        vec3 f = evalBRDF(h.mat, wi, wo, n);
+        vec3 f = evalBRDF(hm, wi, wo, n);
         // (1/N_nee) * w * f * Li * (n.wi) / pdf_nee, with N_nee = nlights
         col += (1.0f / (float)nlights) * w * f * q.intensity * ndotwi * transmittance(R, sc) / pdfNee;
     }
 
     // brdf technique: one sample, weighted by w_brdf
     float xi0 = U(rng), xi1 = U(rng), xi2 = U(rng);
-    vec3 wi = sampleBRDFDir(h.mat, wo, n, xi0, xi1, xi2);
+    vec3 wi = sampleBRDFDir(hm, wo, n, xi0, xi1, xi2);
     float ndotwi = glm::dot(n, wi);
     if (ndotwi > 0) {
-        float pdfBrdf = pdfBRDFDir(h.mat, wi, wo, n);
+        float pdfBrdf = pdfBRDFDir(hm, wi, wo, n);
         if (pdfBrdf > 1e-8f) {
             // does the brdf ray reach a light unobstructed?
             Ray sr(h.pos + EPS * wi, wi);
@@ -606,7 +610,7 @@ HD inline vec3 shadeMIS(const Hit& h, const Ray& ray, const BVH& bvh, const Scen
                 float pdfNee = pdfNEE(h.pos, wi, sc);
                 float wn = (float)nlights * pdfNee;
                 float w = (pdfBrdf * pdfBrdf) / (pdfBrdf * pdfBrdf + wn * wn);
-                vec3 f = evalBRDF(h.mat, wi, wo, n);
+                vec3 f = evalBRDF(hm, wi, wo, n);
                 col += w * f * sc.quadLights[qhit].intensity * ndotwi * transmittance(qt, sc) / pdfBrdf;
             }
         }
@@ -740,6 +744,7 @@ HD inline vec3 pathTrace(const Ray& primary, const BVH& bvh, const Scene& sc, st
     for (int d = 0; infinite || d < sc.maxdepth; d++) {
         Hit h = traceScene(ray, bvh, sc);
         if (!h.found) break;
+        const Material& hm = sc.materials[h.matId];
 
         if (hasScattering) {
             // free-flight sampling. tSample ~ exp(sigma_t_s)
@@ -792,19 +797,19 @@ HD inline vec3 pathTrace(const Ray& primary, const BVH& bvh, const Scene& sc, st
 
         // emission accounting
         if (d == 0) {
-            L += T * h.mat.emission;
-            if (h.mat.emission != vec3(0) && anyDirect) break;
-        } else if (h.mat.emission != vec3(0)) {
+            L += T * hm.emission;
+            if (hm.emission != vec3(0) && anyDirect) break;
+        } else if (hm.emission != vec3(0)) {
             // for NEE/MIS the previous bounce's direct estimator already accounted for this
             if (anyDirect) break;
-            L += T * h.mat.emission;
+            L += T * hm.emission;
             break;
         }
 
         // direct light estimator at this vertex
         if (useNEE) {
-            // shadeDirect adds h.mat.emission as col init, so subtract it here
-            L += T * (shadeDirect(h, ray, bvh, sc, rng) - h.mat.emission);
+            // shadeDirect adds hm.emission as col init, so subtract it here
+            L += T * (shadeDirect(h, ray, bvh, sc, rng) - hm.emission);
         } else if (useMIS) {
             L += T * shadeMIS(h, ray, bvh, sc, rng);
         }
@@ -827,8 +832,8 @@ HD inline vec3 pathTrace(const Ray& primary, const BVH& bvh, const Scene& sc, st
         float pdfval;
         if (sc.importancesampling == BRDF) {
             float xi0 = U(rng), xi1 = U(rng), xi2 = U(rng);
-            wi = sampleBRDFDir(h.mat, wo, n, xi0, xi1, xi2);
-            pdfval = pdfBRDFDir(h.mat, wi, wo, n);
+            wi = sampleBRDFDir(hm, wo, n, xi0, xi1, xi2);
+            pdfval = pdfBRDFDir(hm, wi, wo, n);
         } else {
             float xi1 = U(rng), xi2 = U(rng);
             float theta = (sc.importancesampling == COSINE) ? acosf(sqrtf(xi1)) : acosf(xi1);
@@ -849,7 +854,7 @@ HD inline vec3 pathTrace(const Ray& primary, const BVH& bvh, const Scene& sc, st
         // hemisphere: T *= 2pi * f * (n.wi)  (uniform pdf = 1/(2pi))
         // cosine:     T *= pi * f            (cosine pdf = (n.wi)/pi cancels the dot product)
         // brdf:       T *= f * (n.wi) / pdf  (general form)
-        vec3 f = evalBRDF(h.mat, wi, wo, n);
+        vec3 f = evalBRDF(hm, wi, wo, n);
         if (sc.importancesampling == COSINE)
             T *= glm::pi<float>() * f;
         else if (sc.importancesampling == HEMISPHERE)

@@ -6,6 +6,14 @@
 #include <iostream>
 #include <stack>
 
+// materials - index of m in sc.materials, appended if new (searched newest first)
+inline int materialId(Scene& sc, const Material& m) {
+    for (int i = (int)sc.materials.size() - 1; i >= 0; i--)
+        if (sc.materials[i] == m) return i;
+    sc.materials.push_back(m);
+    return (int)sc.materials.size() - 1;
+}
+
 inline Scene parseScene(const std::string& filename) {
     Scene scene;
     std::ifstream infile(filename);
@@ -51,7 +59,7 @@ inline Scene parseScene(const std::string& filename) {
             ss >> s.center.x >> s.center.y >> s.center.z >> s.radius;
             s.transform = curTransform;
             s.invTransform = glm::inverse(curTransform);
-            s.mat = curMat;
+            s.matId = materialId(scene, curMat);
             scene.spheres.push_back(s);
         }
         else if (cmd == "maxverts") {
@@ -80,7 +88,7 @@ inline Scene parseScene(const std::string& filename) {
             t.v1 = vec3(curTransform * vec4(verts[b], 1.0f));
             t.v2 = vec3(curTransform * vec4(verts[c], 1.0f));
             t.normal = glm::normalize(glm::cross(t.v1 - t.v0, t.v2 - t.v0));
-            t.mat = curMat;
+            t.matId = materialId(scene, curMat);
             scene.tris.push_back(t);
         }
         else if (cmd == "trinormal") {
@@ -92,7 +100,7 @@ inline Scene parseScene(const std::string& filename) {
             t.v1 = vec3(curTransform * vec4(vnorms[b], 1.0f));
             t.v2 = vec3(curTransform * vec4(vnorms[c], 1.0f));
             t.normal = glm::normalize(glm::cross(t.v1 - t.v0, t.v2 - t.v0));
-            t.mat = curMat;
+            t.matId = materialId(scene, curMat);
             scene.tris.push_back(t);
         }
         else if (cmd == "translate") {
@@ -216,6 +224,13 @@ inline Scene parseScene(const std::string& filename) {
         else if (cmd == "g") {
             ss >> scene.globalMedium.g;
         }
+    }
+
+    // quad lights - default material with the light's radiance as emission
+    for (auto& q : scene.quadLights) {
+        Material lm;
+        lm.emission = q.intensity;
+        q.matId = materialId(scene, lm);
     }
 
     infile.close();

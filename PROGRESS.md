@@ -20,6 +20,7 @@ Entry tags:
 | `out/build/x64-Release` (the VS build folder) still has a CMake cache from the project's old location, so it can't configure from here. The scripts use `out/build/cli-release`. Delete that folder's `CMakeCache.txt` and `CMakeFiles/` (save its old renders first if wanted), then rebuild in VS. | 2026-11-09 | Before VS builds are used |
 | `hero`'s statistical check only catches errors of about 5% or more (fireflies survive in its reference). Its code paths are covered more tightly by `cornellScatter`. | 2026-11-09 | Accepted limit |
 | CPU timings for `cornellScatter` and `hero` vary up to 10% between runs (P/E cores). Medians of 5 are used, and min/max are recorded. | 2026-11-09 | Keep in mind when reading small CPU changes |
+| Benchmarks owed, to run interleaved when the machine is idle: 2.3 (`out/check/bin/2.3.exe` vs `a0cef85.exe`), and optionally 2.1 vs Phase 1 to replace the withdrawn order-biased result. | 2026-11-12 | Before the Phase 2 writeup |
 
 ## Bug register
 
@@ -148,4 +149,22 @@ Exact baseline for steps 2.1–2.7: `out/check/phase1` (git-ignored), saved from
   | mis | 5475 ms | 5492 ms | +0.3% |
 
   **Result:** 2.2 is neutral, within noise. The 3% was entirely from run order: the machine slows down as it heats over minutes of full load, so whichever build runs second loses. The 2.1 A/B had the same flaw (above).
-- **Harness:** `bench.py --base EXE --base-commit C` times a base build interleaved with the build under test, alternating the order of each pair, and prints the change. The 16 earlier rows from back-to-back A/B runs keep their numbers but are labelled `[sequential A/B, order-biased]` in `bench/results.csv`. Builds for A/B are kept in `out/check/bin/` (`8ff144a.exe` = 2.1, `2.2.exe`).
+- **Harness:** `bench.py --base EXE --base-commit C` times a base build interleaved with the build under test, alternating the order of each pair, and prints the change. The 16 earlier rows from back-to-back A/B runs keep their numbers but are labelled `[sequential A/B, order-biased]` in `bench/results.csv`. Builds for A/B are kept in `out/check/bin/`, named by commit (`8ff144a.exe` = 2.1, `a0cef85.exe` = 2.2), or by step until committed.
+- Committed as `a0cef85`.
+
+### 2.3 — material indices (2026-11-12)
+
+- `Scene` holds a flat `materials` array. `Triangle`, `Sphere` and `Hit` carry an `int matId` in place of a full `Material`. The parser deduplicates (`materialId`, exact comparison via `Material::operator==`, newest first). Each quad light gets its own emissive material at the end of parsing (D4), and `traceScene` sets that light's `matId` in place of building `Material{}` on every light hit. Every function that read `h.mat` now takes `const Material& hm = sc.materials[h.matId]`. The renderer's scene line now also prints the material count.
+- **Result:** exact check 8/8 byte-identical. Device compile clean. Host calls are up from 14 to 15, the extra one being the new `std::vector<Material>` access, which 2.4 removes with the other vectors.
+- **Result:** struct sizes (MSVC x64):
+
+  | Struct | Before | After |
+  |---|---|---|
+  | `Hit` | 92 B | 36 B |
+  | `Triangle` | 108 B | 52 B (dragon: 10.8 MB → 5.2 MB of triangles) |
+  | `Sphere` | 204 B | 148 B (two `mat4`s left, see Phase 4) |
+  | `QuadLight` | 48 B | 52 B |
+
+  Unique materials per scene: cornellScatter / cornellBRDF / cornellCosine / cornellFog 5, hero 7, dragon 4, mis 11, ggx 9.
+- **Finding:** in `trace()` (the Whitted integrator), `h` is a local declared after a depth check, so the material reference has to come after the miss check. The first scripted edit put it at the top of the function, and a read of the result caught it before building.
+- Benchmark pending (machine busy). The build is kept as `out/check/bin/2.3.exe`, to A/B against `a0cef85.exe` when the machine is idle.

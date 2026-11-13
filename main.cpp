@@ -90,7 +90,8 @@ int main(int argc, char* argv[]) {
 
     std::cout << scene.w << "x" << scene.h
               << " | " << scene.spheres.size() << " spheres"
-              << " | " << scene.tris.size() << " tris" << std::endl;
+              << " | " << scene.tris.size() << " tris"
+              << " | " << scene.materials.size() << " materials" << std::endl;
 
     t0 = std::chrono::steady_clock::now();
     BVH bvh;

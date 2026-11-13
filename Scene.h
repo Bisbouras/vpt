@@ -31,20 +31,26 @@ struct Material {
     float shininess = 0;
     float roughness = 1.0f;
     BrdfType brdf = PHONG;
+
+    bool operator==(const Material& o) const {
+        return diffuse == o.diffuse && specular == o.specular && emission == o.emission &&
+               ambient == o.ambient && shininess == o.shininess && roughness == o.roughness && brdf == o.brdf;
+    }
 };
 
+// matId - index into Scene::materials
 struct Sphere {
     vec3 center;
     float radius;
     mat4 transform;
     mat4 invTransform;
-    Material mat;
+    int matId = 0;
 };
 
 struct Triangle {
     vec3 v0, v1, v2;
     vec3 normal;
-    Material mat;
+    int matId = 0;
 };
 
 struct DirLight {
@@ -60,6 +66,7 @@ struct PointLight {
 struct QuadLight {
     vec3 a, ab, ac;   // corners: a, a+ab, a+ab+ac, a+ac
     vec3 intensity;   // radiance
+    int matId = -1;   // emissive material for hits on the light, set by the parser
 };
 
 // homogeneous global medium. sigma_t = sigma_a + sigma_s.
@@ -80,6 +87,7 @@ struct Scene {
 
     std::vector<Sphere> spheres;
     std::vector<Triangle> tris;
+    std::vector<Material> materials;   // deduplicated, shared by spheres, tris and quad lights
 
     std::vector<DirLight> dirLights;
     std::vector<PointLight> ptLights;
@@ -106,6 +114,6 @@ struct Hit {
     float t = -1;
     vec3 pos;
     vec3 norm;
-    Material mat;
+    int matId = -1;
     bool found = false;
 };
