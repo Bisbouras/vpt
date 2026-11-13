@@ -1,6 +1,6 @@
 # VPT CUDA port — detailed plan
 
-Working plan for porting the VPT path tracer to CUDA: what the code looks like today, the design decisions, each phase's tasks, how each step is checked, and the risks.
+Working plan for porting the VPT path tracer to CUDA: what the code looks like today, the design decisions, each phase's tasks, how each step is checked, and the risks. What actually happened (bugs found, plan changes, results) is logged in `PROGRESS.md`.
 
 Status: **Phase 1 done (2026-11-09): harness, references, validated statistical check, CPU timings (section 8). Next: Phase 2.** Phases run one at a time, with a review before each.
 
@@ -290,6 +290,7 @@ CPU column: Phase 1 build, i7-12700KF, 20 threads, median of 5 runs after 1 warm
 
 ```
 PLAN.md            this file
+PROGRESS.md        progress log: bugs, plan changes, results, open items
 PERF_LOG.md        phase 4 log
 Common.h           HD macro, small maths helpers, FLT_MAX use
 Image.h            pfm writer, output pass
