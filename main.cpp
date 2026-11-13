@@ -4,6 +4,7 @@
 #include <string>
 #include <cstdlib>
 #include <chrono>
+#include <sstream>
 #include <omp.h>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -13,9 +14,12 @@
 #include "Parser.h"
 #include "Raytracer.h"
 #include "Image.h"
+#ifdef VPT_HAS_CUDA
+#include "GpuRender.h"
+#endif
 
 static const char* USAGE =
-    "usage: raytracer <scenefile> [--spp N] [--out file.png] [--seed N] [--quiet]";
+    "usage: raytracer <scenefile> [--spp N] [--out file.png] [--seed N] [--quiet] [--gpu]";
 
 static double msSince(std::chrono::steady_clock::time_point t0) {
     return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
@@ -33,7 +37,7 @@ static bool parseInt(const char* s, long lo, long hi, long& out) {
 int main(int argc, char* argv[]) {
     std::string sceneFile, outFile;
     long sppOverride = 0, seed = 0;
-    bool quiet = false;
+    bool quiet = false, gpu = false;
 
     for (int a = 1; a < argc; a++) {
         std::string arg = argv[a];
@@ -55,6 +59,14 @@ int main(int argc, char* argv[]) {
         }
         else if (arg == "--quiet") {
             quiet = true;
+        }
+        else if (arg == "--gpu") {
+#ifdef VPT_HAS_CUDA
+            gpu = true;
+#else
+            std::cerr << "--gpu needs a build with the CUDA backend (VPT_CUDA)" << std::endl;
+            return 1;
+#endif
         }
         else if (arg.rfind("--", 0) == 0 || !sceneFile.empty()) {
             std::cerr << "unexpected argument " << arg << "\n" << USAGE << std::endl;
@@ -102,22 +114,45 @@ int main(int argc, char* argv[]) {
               << bvh.prims.size() << " prims" << std::endl;
 
     std::vector<vec3> sum(scene.w * scene.h, vec3(0));
-    t0 = std::chrono::steady_clock::now();
-    int n = render(scene, bvh, sum.data(), quiet);
-    double renderMs = msSince(t0);
+    int n = 0;
+    double renderMs = 0;
+    std::ostringstream extra;   // backend-specific timing fields
+    extra << std::fixed << std::setprecision(1);
+    if (gpu) {
+#ifdef VPT_HAS_CUDA
+        if (scene.integrator != PATHTRACER) {
+            std::cerr << "--gpu supports the path tracer only" << std::endl;
+            return 1;
+        }
+        std::cout << "gpu: " << gpuInit() << std::endl;
+        GpuTimes gt;
+        t0 = std::chrono::steady_clock::now();
+        renderGPU(makeView(scene, bvh), scene.spp, sum.data(), gt);
+        double totalMs = msSince(t0);
+        n = scene.spp;
+        renderMs = gt.render_ms;
+        extra << " upload_ms=" << gt.upload_ms << " download_ms=" << gt.download_ms << " total_ms=" << totalMs;
+#endif
+    }
+    else {
+        t0 = std::chrono::steady_clock::now();
+        n = render(scene, bvh, sum.data(), quiet);
+        renderMs = msSince(t0);
+        extra << " threads=" << omp_get_max_threads();
+    }
 
     std::vector<vec3> avg(scene.w * scene.h);
     std::vector<unsigned char> pixels(scene.w * scene.h * 3);
     outputPass(sum.data(), n, scene.w, scene.h, scene.gamma, avg.data(), pixels.data());
 
-    // timing - one line for scripts/bench.py
+    // timing - one line for scripts/bench.py, all values numeric
     double msamples = (double)scene.w * scene.h * scene.spp / (renderMs / 1000.0) / 1e6;
     std::cout << std::fixed << std::setprecision(1)
               << "time parse_ms=" << parseMs
               << " bvh_ms=" << bvhMs
               << " render_ms=" << renderMs
               << " spp=" << scene.spp
-              << " threads=" << omp_get_max_threads()
+              << extra.str()
               << std::setprecision(3) << " msamples_s=" << msamples << std::endl;
 
     if (!stbi_write_png(scene.outfile.c_str(), scene.w, scene.h, 3, pixels.data(), scene.w * 3)) {

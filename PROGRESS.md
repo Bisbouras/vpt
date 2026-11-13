@@ -274,3 +274,35 @@ All builds were first re-verified against their exact baselines (8/8 each). Then
 - **Result:** the 2.1 recheck, now interleaved, gives −0.4% to −2.6% with all ranges overlapping. So 2.1 has no clear effect, which replaces the withdrawn "2% faster" claim.
 - **Finding:** the step-by-step changes roughly add up to the total (e.g. cornellScatter −8.7% summed vs −7.3% measured directly), which suggests the per-step numbers are consistent. Only the direct Phase 1 vs Phase 2 comparison is used as the headline.
 - End-of-Phase-2 CPU timings (same session as the total): cornellScatter 3734 ms (7.90 Ms/s), hero 8840 ms (9.27 Ms/s), dragon 10323 ms (3.81 Ms/s), mis 5056 ms (9.96 Ms/s).
+- Committed as `2a9d2d6`.
+
+## Phase 3 — simple CUDA kernel (from 2026-11-13)
+
+### 3.1 — kernel, build and correctness (2026-11-13)
+
+- **CMake:** option `VPT_CUDA` (default on). If `check_language(CUDA)` finds nvcc, it enables CUDA, adds `Kernels.cu`, sets `CUDA_ARCHITECTURES 86`, C++17 and `--expt-relaxed-constexpr` (CUDA sources only), and defines `VPT_HAS_CUDA`. Otherwise the build is the CPU renderer, unchanged. `cmake_minimum_required` went from 3.15 to 3.18 (needed for `CUDA_ARCHITECTURES`). Detected: nvcc 13.5.37 with host compiler MSVC 19.51.
+- **New files:**
+  - `CudaCheck.h`: `CUDA_CHECK(call)` prints error name, string, the call, file and line, then exits.
+  - `GpuRender.h`: host-facing `gpuInit()` / `renderGPU()` with no CUDA types, so `main.cpp` stays plain C++.
+  - `Kernels.cu`: `renderKernel`, one thread per pixel, 16×16 blocks, `sum[p] += renderPixel(sc, x, y, s)`. `renderGPU` uploads each `SceneView` array with `cudaMalloc` + `cudaMemcpy` (the directional and point lights, used only by Whitted, are left out), zeroes the sum buffer, launches once per sample, times the launches with CUDA events, downloads, and frees everything in one place. Every runtime call and every launch (`cudaGetLastError`) goes through `CUDA_CHECK`.
+- **`main.cpp`:** `--gpu` (path tracer only; a CPU-only build refuses it with a message). Context creation (`gpuInit`) happens outside the timings. The GPU run reuses the same `outputPass` and PNG/PFM writers. The timing line keeps `render_ms` (CUDA events: all sample launches) and adds `upload_ms`, `download_ms` and `total_ms` (wall clock for upload + render + download) in place of `threads`.
+- **Result:** both configurations build. The CUDA build compiled and linked first time. The CPU-only build (`-DVPT_CUDA=OFF`) and the CUDA build both pass the exact check 8/8 on the CPU path (`out/check/phase2-pcg`).
+- **Result:** `compute-sanitizer --tool memcheck` at 2 spp on cornellScatter, dragon and ggx: **0 errors** each.
+- **Result:** statistical check of the **GPU** against the CPU references and PCG noise floor: **8/8 pass**, every z-score within ±2.1. This is Phase 3's correctness criterion.
+- **Result:** with the same seed, CPU and GPU draw the same random numbers, so they can be compared pixel by pixel (64 spp):
+
+  | Scene | Pixels within 1e-5 relative | Within 1e-3 | Image mean CPU vs GPU |
+  |---|---|---|---|
+  | cornellScatter | 90.4% | 99.9% | +0.001% |
+  | hero | 99.0% | 99.9% | +0.000% |
+  | dragon | 98.8% | 99.8% | +0.001% |
+  | mis | 98.7% | 100.0% | +0.002% |
+  | cornellBRDF | 92.1% | 99.8% | +0.001% |
+  | cornellCosine | 90.3% | 99.9% | +0.000% |
+  | cornellFog | 88.8% | 99.9% | +0.000% |
+  | ggx | 77.4% | 94.4% | +0.010% |
+
+  The remaining differences come from float rounding: nvcc contracts multiply-adds into FMAs, and its `sinf`/`powf`/`logf` differ in the last bit, which now and then flips a Russian-roulette or free-flight decision and sends that one path elsewhere. `ggx` matches least because sharp GGX lobes amplify tiny direction differences.
+- **Result (indicative only, machine not confirmed idle):** first GPU run of cornellScatter at 128 spp: render 720 ms (41 Ms/s), upload 2.0 ms, download 0.3 ms, against 3734 ms on the CPU at the end of Phase 2. That's about 5× from the naive kernel. Proper benchmarks come in 3.2.
+- **Harness:** `check.py`/`bench.py` need `--extra=--gpu` (with `=`). Written as `--extra "--gpu"`, argparse takes `--gpu` for an option of its own and errors.
+- Build kept as `out/check/bin/3.1.exe`, which has both backends.

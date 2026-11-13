@@ -2,7 +2,7 @@
 
 Working plan for porting the VPT path tracer to CUDA: what the code looks like today, the design decisions, each phase's tasks, how each step is checked, and the risks. What actually happened (bugs found, plan changes, results) is logged in `PROGRESS.md`.
 
-Status: **Phase 1 done (2026-11-09): harness, references, validated statistical check, CPU timings (section 8). Phase 2 done 2026-11-12 (2.1–2.9, benchmarked): the path tracer compiles for the GPU, and the CPU is 6–7% faster than Phase 1. Exact baseline: `out/check/phase2-pcg`. Next: Phase 3, after review.** Phases run one at a time, with a review before each.
+Status: **Phase 1 done (2026-11-09): harness, references, validated statistical check, CPU timings (section 8). Phase 3 in progress. 3.1 done 2026-11-13: `--gpu` works, GPU passes the statistical check 8/8, memcheck clean. Next: 3.2, GPU benchmarks and the timing table (GPU idle needed).** Phases run one at a time, with a review before each.
 
 ---
 
@@ -146,7 +146,7 @@ Both drop the worst 1% of blocks, and relMSE drops the worst 0.1% of pixels, so 
 - The references come from the **Phase 1** code (mt19937). They're the fixed point for everything after.
 
 ### 1.7 Benchmark script — `scripts/bench.py`
-Runs the executable over the benchmark set, 1 warm-up + 5 timed runs each, takes the median, and appends to `bench/results.csv` (`date, commit, backend, label, scene, w, h, spp, threads, runs, parse_ms, bvh_ms, render_ms, render_min_ms, render_max_ms, msamples_s`). `--label` notes the change being measured, and `--extra "--gpu"` will select the GPU in Phase 3. The commit hash comes from `git rev-parse --short HEAD` (read-only). `bench/` stays in git, since the CSV is the raw data behind the writeup.
+Runs the executable over the benchmark set, 1 warm-up + 5 timed runs each, takes the median, and appends to `bench/results.csv` (`date, commit, backend, label, scene, w, h, spp, threads, runs, parse_ms, bvh_ms, render_ms, render_min_ms, render_max_ms, msamples_s`). `--label` notes the change being measured, and `--extra=--gpu` (with `=`, so argparse doesn't read `--gpu` as its own option) selects the GPU. The commit hash comes from `git rev-parse --short HEAD` (read-only). `bench/` stays in git, since the CSV is the raw data behind the writeup.
 
 ### 1.8 Check script — `scripts/check.py`
 Runs the benchmark + correctness sets and does one of two checks:
