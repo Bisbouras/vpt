@@ -20,14 +20,14 @@ Entry tags:
 | `out/build/x64-Release` (the VS build folder) still has a CMake cache from the project's old location, so it can't configure from here. The scripts use `out/build/cli-release`. Delete that folder's `CMakeCache.txt` and `CMakeFiles/` (save its old renders first if wanted), then rebuild in VS. | 2026-11-09 | Before VS builds are used |
 | `hero`'s statistical check only catches errors of about 5% or more (fireflies survive in its reference). Its code paths are covered more tightly by `cornellScatter`. | 2026-11-09 | Accepted limit |
 | CPU timings for `cornellScatter` and `hero` vary up to 10% between runs (P/E cores). Medians of 5 are used, and min/max are recorded. | 2026-11-09 | Keep in mind when reading small CPU changes |
-| Benchmarks owed, to run interleaved when the machine is idle: 2.3 (`0722b41.exe` vs `a0cef85.exe`), 2.4 (`c6fd115.exe` vs `0722b41.exe`), 2.5 (`2.5.exe` vs `c6fd115.exe`), and optionally 2.1 vs Phase 1 to replace the withdrawn order-biased result. | 2026-11-12 | Before the Phase 2 writeup |
+| Benchmarks owed, to run interleaved when the machine is idle: 2.3 (`0722b41.exe` vs `a0cef85.exe`), 2.4 (`c6fd115.exe` vs `0722b41.exe`), 2.5 (`a110fc0.exe` vs `c6fd115.exe`), 2.6 (`2.6.exe` vs `a110fc0.exe`), and optionally 2.1 vs Phase 1 to replace the withdrawn order-biased result. | 2026-11-12 | Before the Phase 2 writeup |
 
 ## Bug register
 
 | ID | Bug | Found | Status |
 |---|---|---|---|
 | B1 | `done++` in `render()` is a data race under OpenMP. It also printed progress lines from several threads. | Outline (known) | **Fixed** in Phase 1 (`ae82772`): `std::atomic<int>`, printing off with `--quiet` |
-| B2 | `AABB::hit` can produce NaN for axis-aligned rays (0 × inf). CPU and GPU min/max treat NaN differently. | Outline (known) | Open → Phase 2.6 |
+| B2 | `AABB::hit` can produce NaN for axis-aligned rays (0 × inf). CPU and GPU min/max treat NaN differently. | Outline (known) | **Fixed** in 2.6 (`safeInv`). Never triggered in the 8 scenes (0 in about 3.5 billion box tests), but shown to flip hit/miss in a constructed case |
 | B3 | Functions defined in headers aren't `inline`. Linking will fail with duplicate symbols as soon as a second file (`Kernels.cu`) includes them. Latent today. | Phase 0.5 code read | **Fixed** in 2.1 |
 | B4 | No bounce cap for `maxdepth -1`: only Russian roulette ends a path. Fine on the CPU, but on the GPU it means long-tailed warps and a risk of hitting the Windows 2 s kernel timeout. | Phase 0.5 code read | Open → Phase 2.9 (decision D5) |
 
@@ -185,3 +185,12 @@ Exact baseline for steps 2.1–2.7: `out/check/phase1` (git-ignored), saved from
 - New `BVH::reorder(scene)`, called right after `build`, rewrites `scene.spheres` and `scene.tris` into leaf order (the nodes are stored depth-first, so neighbouring leaves now hit neighbouring primitives in memory). Each leaf's `prim` then indexes them directly: values below `numSpheres` are spheres, the rest are triangles after them. `traceBVH` reads `spheres[prim]` / `tris[prim − numSpheres]`. `Prim` is now build-only, and `SceneView` no longer has `prims`. The node layout is unchanged (layout work is Phase 4).
 - **Result:** exact check 8/8 byte-identical. No hit-distance ties changed which primitive wins, so the possible exception noted in the plan didn't occur. Device compile clean, still 2 host calls (RNG only). The reorder adds no measurable BVH build time (dragon ~73 ms both before and after, 3 runs each).
 - Benchmark pending. The build is kept as `out/check/bin/2.5.exe`. The leaf-order memory layout is the part most likely to show up in timing, on dragon.
+- Committed as `a110fc0`.
+
+### 2.6 — ray–box NaN (B2) (2026-11-12)
+
+- **Finding:** first measured how often B2 actually happens. A scratch build of `a110fc0` counted NaN `tenter`/`texit` in `AABB::hit` over all 8 scenes at 8 spp: **0 NaNs in about 3.5 billion box tests**. At most one ray per scene had an exactly-zero direction component, and none of those also started exactly on a box face, which NaN needs. So B2 is latent in these scenes.
+- **Finding:** a scratch test of exactly that case (unit box, ray starting on the y = 0 face, moving along +x) shows why it still matters. The old code gets `t0.y = 0 × ∞ = NaN`, and the answer then depends on argument order: `glm::min(t0, t1)` gives a **hit**, `glm::min(t1, t0)` a **miss**. The GPU's `fminf`/`fmaxf` skip NaN, so CPU and GPU could disagree on such rays.
+- **Fix:** new `safeInv` in `BVH.h`: `1/x`, with `|x| < 1e-20` nudged to `±1e-20`. `traceBVH` builds the inverse direction with it, so it's always finite and `AABB::hit` can't produce NaN. In the test above, both argument orders then agree (hit). **B2 fixed.**
+- **Result:** exact check 8/8 byte-identical (expected, given 0 NaNs before). Device compile clean, still 2 host calls (RNG only).
+- Benchmark pending. The build is kept as `out/check/bin/2.6.exe`.

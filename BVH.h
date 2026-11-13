@@ -4,6 +4,16 @@
 #include <algorithm>
 #include <numeric>
 #include <cfloat>
+#include <cmath>
+
+// safeInv - 1/x with |x| < 1e-20 nudged to +-1e-20, so the result is finite and AABB::hit can't do 0 * inf (nan)
+HD inline float safeInv(float x) {
+    return 1.0f / (fabsf(x) > 1e-20f ? x : copysignf(1e-20f, x));
+}
+
+HD inline vec3 safeInv(const vec3& d) {
+    return vec3(safeInv(d.x), safeInv(d.y), safeInv(d.z));
+}
 
 struct AABB {
     vec3 bmin = vec3(FLT_MAX);
@@ -21,6 +31,7 @@ struct AABB {
 
     vec3 centroid() const { return (bmin + bmax) * 0.5f; }
 
+    // inv_d from safeInv - finite, so no nan when the origin lies on a slab plane
     HD bool hit(const vec3& orig, const vec3& inv_d, float tmax) const {
         vec3 t0 = (bmin - orig) * inv_d;
         vec3 t1 = (bmax - orig) * inv_d;

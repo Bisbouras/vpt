@@ -105,7 +105,7 @@ HD inline Hit traceBVH(const Ray& ray, const SceneView& sc, float maxT = FLT_MAX
 
     if (sc.numNodes == 0) return closest;
 
-    vec3 invd = vec3(1.0f / ray.direction.x, 1.0f / ray.direction.y, 1.0f / ray.direction.z);
+    vec3 invd = safeInv(ray.direction);
 
     // iterative traversal with stack
     int stack[64];
