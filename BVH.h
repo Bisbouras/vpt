@@ -3,10 +3,11 @@
 #include "Scene.h"
 #include <algorithm>
 #include <numeric>
+#include <cfloat>
 
 struct AABB {
-    vec3 bmin = vec3(std::numeric_limits<float>::max());
-    vec3 bmax = vec3(-std::numeric_limits<float>::max());
+    vec3 bmin = vec3(FLT_MAX);
+    vec3 bmax = vec3(-FLT_MAX);
 
     void grow(const vec3& p) {
         bmin = glm::min(bmin, p);

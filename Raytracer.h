@@ -4,14 +4,13 @@
 #include "BVH.h"
 #include <algorithm>
 #include <cmath>
-#include <limits>
+#include <cfloat>
 #include <glm/gtc/constants.hpp>
 #include <random>
 #include <atomic>
 #include <iostream>
 
 constexpr float EPS = 1e-4f;
-constexpr float INF = std::numeric_limits<float>::max();
 
 // beer-lambert transmittance over a path of length d through the global medium.
 // componentwise rgb so colored fog works.
@@ -99,7 +98,7 @@ HD inline Hit hitTriangle(const Ray& ray, const Triangle& tri) {
 }
 
 // traverse BVH to find closest hit
-HD inline Hit traceBVH(const Ray& ray, const BVH& bvh, const Scene& sc, float maxT = INF) {
+HD inline Hit traceBVH(const Ray& ray, const BVH& bvh, const Scene& sc, float maxT = FLT_MAX) {
     Hit closest;
     closest.t = maxT;
     closest.found = false;
@@ -192,7 +191,7 @@ HD inline vec3 modPhongBRDF(const vec3& wi, const vec3& wo, const vec3& n,
                   const vec3& kd, const vec3& ks, float s) {
     vec3 diff = kd / glm::pi<float>();
     vec3 r = glm::reflect(-wi, n);
-    float rdotwo = std::max(glm::dot(r, wo), 0.0f);
+    float rdotwo = maxf(glm::dot(r, wo), 0.0f);
     vec3 spec = ks * ((s + 2.0f) / (2.0f * glm::pi<float>())) * powf(rdotwo, s);
     return diff + spec;
 }
@@ -230,7 +229,7 @@ HD inline vec3 ggxBRDF(const vec3& wi, const vec3& wo, const vec3& n,
     if (ndotwi <= 0 || ndotwo <= 0) return vec3(0);
     vec3 h = glm::normalize(wi + wo);
     float ndoth = glm::dot(n, h);
-    float widoth = std::max(glm::dot(wi, h), 0.0f);
+    float widoth = maxf(glm::dot(wi, h), 0.0f);
     vec3 F = fresnelSchlick(ks, widoth);
     float G = ggxG1(ndotwi, alpha) * ggxG1(ndotwo, alpha);
     float D = ggxD(ndoth, alpha);
@@ -287,8 +286,8 @@ HD inline vec3 shadeDirect(const Hit& h, const Ray& ray, const BVH& bvh, const S
             // visibility
             if (shadow(h.pos, wi, R - EPS, bvh, sc)) continue;
 
-            float ndotwi = std::max(glm::dot(n, wi), 0.0f);
-            float nldotwi = std::max(glm::dot(nl, wi), 0.0f);  // nl already oriented away from scene
+            float ndotwi = maxf(glm::dot(n, wi), 0.0f);
+            float nldotwi = maxf(glm::dot(nl, wi), 0.0f);  // nl already oriented away from scene
 
             if (ndotwi <= 0 || nldotwi <= 0) continue;
 
@@ -309,7 +308,7 @@ inline vec3 shade(const Hit& h, const Ray& ray, const BVH& bvh, const Scene& sc)
     // directional lights
     for (auto& l : sc.dirLights) {
         vec3 ld = glm::normalize(l.dir);
-        if (shadow(h.pos, ld, INF, bvh, sc)) continue;
+        if (shadow(h.pos, ld, FLT_MAX, bvh, sc)) continue;
 
         float ndl = std::max(glm::dot(n, ld), 0.0f);
         col += h.mat.diffuse * l.col * ndl;
@@ -398,7 +397,7 @@ HD inline bool hitQuad(const Ray& ray, const QuadLight& q, float& tOut) {
 // like traceBVH but also intersects quad lights, synthesizing a Hit with
 // emission set. for primary + indirect rays in the path tracer.
 // shadow rays still use traceBVH (the light shouldn't shadow itself).
-HD inline Hit traceScene(const Ray& ray, const BVH& bvh, const Scene& sc, float maxT = INF) {
+HD inline Hit traceScene(const Ray& ray, const BVH& bvh, const Scene& sc, float maxT = FLT_MAX) {
     Hit closest = traceBVH(ray, bvh, sc, maxT);
 
     for (size_t k = 0; k < sc.quadLights.size(); k++) {
@@ -433,7 +432,7 @@ HD inline float ggxT(const vec3& kd, const vec3& ks) {
     float as = (ks.r + ks.g + ks.b) / 3.0f;
     float d = ad + as;
     if (d <= 1e-8f) return 1.0f;
-    return std::max(0.25f, as / d);
+    return maxf(0.25f, as / d);
 }
 
 // sample wi from the modified phong importance sampling pdf.
@@ -462,9 +461,9 @@ HD inline vec3 samplePhongDir(const Material& m, const vec3& wo, const vec3& n,
 // evaluate the modified phong importance sampling pdf at arbitrary wi
 HD inline float pdfPhongDir(const Material& m, const vec3& wi, const vec3& wo, const vec3& n) {
     float t = phongT(m.diffuse, m.specular);
-    float ndotwi = std::max(glm::dot(n, wi), 0.0f);
+    float ndotwi = maxf(glm::dot(n, wi), 0.0f);
     vec3 r = glm::reflect(-wo, n);
-    float rdotwi = std::max(glm::dot(r, wi), 0.0f);
+    float rdotwi = maxf(glm::dot(r, wi), 0.0f);
     float pd = ndotwi / glm::pi<float>();
     float ps = ((m.shininess + 1.0f) / (2.0f * glm::pi<float>())) * powf(rdotwi, m.shininess);
     return (1.0f - t) * pd + t * ps;
@@ -496,10 +495,10 @@ HD inline vec3 sampleGGXDir(const Material& m, const vec3& wo, const vec3& n,
 // evaluate the ggx importance sampling pdf at arbitrary wi
 HD inline float pdfGGXDir(const Material& m, const vec3& wi, const vec3& wo, const vec3& n) {
     float t = ggxT(m.diffuse, m.specular);
-    float ndotwi = std::max(glm::dot(n, wi), 0.0f);
+    float ndotwi = maxf(glm::dot(n, wi), 0.0f);
     vec3 h = glm::normalize(wi + wo);
-    float ndoth = std::max(glm::dot(n, h), 0.0f);
-    float hdotwi = std::max(glm::dot(h, wi), 1e-8f);
+    float ndoth = maxf(glm::dot(n, h), 0.0f);
+    float hdotwi = maxf(glm::dot(h, wi), 1e-8f);
     float pd = ndotwi / glm::pi<float>();
     float D = ggxD(ndoth, m.roughness);
     float ps = D * ndoth / (4.0f * hdotwi);
@@ -593,7 +592,7 @@ HD inline vec3 shadeMIS(const Hit& h, const Ray& ray, const BVH& bvh, const Scen
             // does the brdf ray reach a light unobstructed?
             Ray sr(h.pos + EPS * wi, wi);
             Hit geomHit = traceBVH(sr, bvh, sc);
-            float geomT = geomHit.found ? geomHit.t : INF;
+            float geomT = geomHit.found ? geomHit.t : FLT_MAX;
             int qhit = -1;
             float qt = geomT;
             for (int k = 0; k < nlights; k++) {
@@ -697,7 +696,7 @@ HD inline vec3 shadeMISVolume(const vec3& p, const vec3& wo, const BVH& bvh, con
     if (pdfPh > 1e-8f) {
         Ray sr(p + EPS * wi, wi);
         Hit geomHit = traceBVH(sr, bvh, sc);
-        float geomT = geomHit.found ? geomHit.t : INF;
+        float geomT = geomHit.found ? geomHit.t : FLT_MAX;
         int qhit = -1;
         float qt = geomT;
         for (int k = 0; k < nlights; k++) {
@@ -894,7 +893,7 @@ inline void render(const Scene& sc, const BVH& bvh, unsigned char* pixels, vec3*
                 col = trace(ray, bvh, sc, sc.maxdepth);
             } else {
                 // check quad light visibility (primary ray only)
-                float tq = INF;
+                float tq = FLT_MAX;
                 int qhit = -1;
                 for (size_t k = 0; k < sc.quadLights.size(); k++) {
                     float t;

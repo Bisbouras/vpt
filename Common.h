@@ -7,3 +7,6 @@
 #else
 #define HD
 #endif
+
+// maxf - same as std::max, b only when a < b (so a nan in a is kept, unlike fmaxf)
+HD inline float maxf(float a, float b) { return a < b ? b : a; }

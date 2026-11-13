@@ -2,7 +2,7 @@
 
 Working plan for porting the VPT path tracer to CUDA: what the code looks like today, the design decisions, each phase's tasks, how each step is checked, and the risks. What actually happened (bugs found, plan changes, results) is logged in `PROGRESS.md`.
 
-Status: **Phase 1 done (2026-11-09): harness, references, validated statistical check, CPU timings (section 8). Phase 2 in progress: 2.1 done 2026-11-12. Next: 2.2.** Phases run one at a time, with a review before each.
+Status: **Phase 1 done (2026-11-09): harness, references, validated statistical check, CPU timings (section 8). Phase 2 in progress: 2.1 and 2.2 done 2026-11-12. Next: 2.3.** Phases run one at a time, with a review before each.
 
 ---
 
@@ -167,7 +167,7 @@ Done when: the timing line, PFM, CLI and all three scripts work, the references 
 
 Each step: change, rebuild, run the check, compile the shared headers with nvcc (below), benchmark when the machine is idle (CPU speed changes count as writeup material too), log the step in `PROGRESS.md`, then **one commit per step**.
 
-**Benchmarks are same-session A/B (C11):** run `bench.py` on the previous step's build (`--exe … --commit …`) and on the new build back to back. Never compare against numbers from another day: the same code varied 6–10% between sessions.
+**Benchmarks are interleaved same-session A/B (C11, C12):** keep each step's build in `out/check/bin/`, then run `bench.py --label "…" --base out/check/bin/<previous>.exe --base-commit <hash>`. It alternates the two builds run by run for each scene. Never compare against numbers from another day (the same code varied 6–10% between sessions), and never run two builds one after the other (the second loses up to 3% to heat).
 
 **Device compile check (C8):** after every step, run `scripts/devcheck.py`. It compiles `tests/devcheck.cu`, a `__global__` function that calls `pathTrace`, with nvcc (`-arch=sm_86 --expt-relaxed-constexpr`), and lists every host-only function still called from device code. `--strict` fails on any of them. Warnings about host functions called from device code count as failures once the step that removes them is done. This turns "no host-only calls" into a test long before Phase 3.
 

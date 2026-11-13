@@ -45,6 +45,7 @@ Entry tags:
 | C9 | Noise floor re-measured with the new RNG after 2.8 (references unchanged) | The GPU uses the same PCG sampler, so it should be compared against a floor from that sampler | 2026-11-12 |
 | C10 | Phase 2 is committed one step at a time (Phase 1 was one commit) | Clean checkpoints that are easy to bisect if the GPU port finds a problem | 2026-11-12 |
 | C11 | Every speed comparison is a same-session A/B: the previous build is benchmarked right before or after the new one. The final CPU column of the timing table gets re-measured in the same session as the GPU numbers. | The identical Phase 1 code ran 6–10% faster on 2026-11-12 than on 2026-11-09, more than most single changes will gain | 2026-11-12 |
+| C12 | A/B runs are **interleaved** per scene (`bench.py --base`), not one build after the other. Amends C11. | Running back to back favours the first build by up to 3% as the machine heats up (2.2) | 2026-11-12 |
 
 ---
 
@@ -130,5 +131,21 @@ Exact baseline for steps 2.1–2.7: `out/check/phase1` (git-ignored), saved from
   | dragon | 11509 ms | 11353 ms | −1.3% |
   | mis | 5545 ms | 5416 ms | −2.3% |
 
-  **Result:** 2.1 itself is about 2% faster, consistently on every scene, but small (min/max ranges barely overlap). Most of the gap to the 2026-11-09 baseline is the machine: the identical Phase 1 code runs 6–10% faster today. Timings from different sessions can't be compared (C11).
+  **Result (withdrawn, see 2.2):** this A/B ran the builds one after the other, with Phase 1 second, and 2.2 showed that the second build in such a run comes out slower. So the "2.1 is about 2% faster" reading is not trustworthy. An interleaved re-run is needed before any 2.1 speed-up can be claimed. Most of the gap to the 2026-11-09 baseline is the machine: the identical Phase 1 code runs 6–10% faster today. Timings from different sessions can't be compared (C11).
 - **Harness:** `bench.py` gained `--commit`, to stamp rows from a binary that isn't HEAD (A/B runs). The `+dirty` flag now looks only at renderer source (`*.h`, `*.cpp`, `*.cu`, `CMakeLists.txt`), because appending to `bench/results.csv` made every later run "dirty". The 2.1 rows were corrected from `7beb909+dirty` to `7beb909`.
+
+### 2.2 — no STL in the hot path (2026-11-12)
+
+- 10 `std::max` calls in path-tracer functions became `maxf` (new in `Common.h`, `a < b ? b : a`, the same as `std::max` including NaN handling, unlike `fmaxf`). `INF` (`numeric_limits<float>::max()`) was replaced by `FLT_MAX` directly, and the `AABB` defaults use `FLT_MAX` too. The 6 `std::max` calls in the CPU-only Whitted `shade()` stay.
+- **Result:** exact check 8/8 byte-identical. Device compile clean, still 14 host calls (`std::max` was never among them).
+- **Finding: benchmark order effect.** The first A/B ran the builds one after the other (2.1, then 2.2) and showed 2.2 3.0% slower on cornellScatter, with no overlap between the two min/max ranges, even though nothing in the code should change speed. Re-run **interleaved** per scene (base, test, test, base, …):
+
+  | Scene | 2.1 build | 2.2 build | Change |
+  |---|---|---|---|
+  | cornellScatter | 4057 ms | 4063 ms | +0.1% |
+  | hero | 9567 ms | 9656 ms | +0.9% |
+  | dragon | 11593 ms | 11628 ms | +0.3% |
+  | mis | 5475 ms | 5492 ms | +0.3% |
+
+  **Result:** 2.2 is neutral, within noise. The 3% was entirely from run order: the machine slows down as it heats over minutes of full load, so whichever build runs second loses. The 2.1 A/B had the same flaw (above).
+- **Harness:** `bench.py --base EXE --base-commit C` times a base build interleaved with the build under test, alternating the order of each pair, and prints the change. The 16 earlier rows from back-to-back A/B runs keep their numbers but are labelled `[sequential A/B, order-biased]` in `bench/results.csv`. Builds for A/B are kept in `out/check/bin/` (`8ff144a.exe` = 2.1, `2.2.exe`).
