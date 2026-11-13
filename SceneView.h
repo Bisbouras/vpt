@@ -16,8 +16,7 @@ struct SceneView {
     const Sphere* spheres;     int numSpheres;
     const Triangle* tris;      int numTris;
     const Material* materials; int numMaterials;
-    const BVHNode* nodes;      int numNodes;
-    const Prim* prims;         int numPrims;
+    const BVHNode* nodes;      int numNodes;   // leaves index spheres / tris directly (BVH::reorder)
 
     // lights - dir and point lights are only read by the cpu-only whitted integrator
     const QuadLight* quadLights;  int numQuadLights;
@@ -48,7 +47,6 @@ inline SceneView makeView(const Scene& sc, const BVH& bvh) {
     v.tris = sc.tris.data();             v.numTris = (int)sc.tris.size();
     v.materials = sc.materials.data();   v.numMaterials = (int)sc.materials.size();
     v.nodes = bvh.nodes.data();          v.numNodes = (int)bvh.nodes.size();
-    v.prims = bvh.prims.data();          v.numPrims = (int)bvh.prims.size();
 
     v.quadLights = sc.quadLights.data(); v.numQuadLights = (int)sc.quadLights.size();
     v.dirLights = sc.dirLights.data();   v.numDirLights = (int)sc.dirLights.size();

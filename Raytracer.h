@@ -120,13 +120,12 @@ HD inline Hit traceBVH(const Ray& ray, const SceneView& sc, float maxT = FLT_MAX
             continue;
 
         if (nd.prim >= 0) {
-            // leaf
-            const Prim& pr = sc.prims[nd.prim];
+            // leaf - spheres first, then tris (see BVH::reorder)
             Hit h;
-            if (pr.kind == Prim::SPH)
-                h = hitSphere(ray, sc.spheres[pr.idx]);
+            if (nd.prim < sc.numSpheres)
+                h = hitSphere(ray, sc.spheres[nd.prim]);
             else
-                h = hitTriangle(ray, sc.tris[pr.idx]);
+                h = hitTriangle(ray, sc.tris[nd.prim - sc.numSpheres]);
 
             if (h.found && h.t < closest.t && h.t > EPS)
                 closest = h;

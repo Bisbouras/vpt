@@ -96,6 +96,7 @@ int main(int argc, char* argv[]) {
     t0 = std::chrono::steady_clock::now();
     BVH bvh;
     bvh.build(scene);
+    bvh.reorder(scene);
     double bvhMs = msSince(t0);
     std::cout << "BVH: " << bvh.nodes.size() << " nodes, "
               << bvh.prims.size() << " prims" << std::endl;

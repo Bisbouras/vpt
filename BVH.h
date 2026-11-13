@@ -32,7 +32,7 @@ struct AABB {
     }
 };
 
-// wraps either a sphere or triangle with its bounding box
+// wraps either a sphere or triangle with its bounding box (build only)
 struct Prim {
     enum Kind { SPH, TRI };
     Kind kind;
@@ -68,11 +68,12 @@ inline AABB getTriBox(const Triangle& t) {
     return b;
 }
 
+// leaf if prim >= 0. after reorder(), prim < numSpheres is spheres[prim], the rest are tris[prim - numSpheres]
 struct BVHNode {
     AABB box;
     int left = -1;
     int right = -1;
-    int prim = -1; // leaf if >= 0
+    int prim = -1;
 };
 
 struct BVH {
@@ -135,5 +136,28 @@ struct BVH {
         nodes[i].left = l;
         nodes[i].right = r;
         return i;
+    }
+
+    // reorder - spheres and tris into leaf order so leaves index them directly, without Prim
+    void reorder(Scene& sc) {
+        int ns = (int)sc.spheres.size();
+        std::vector<Sphere> sph;
+        std::vector<Triangle> tri;
+        sph.reserve(sc.spheres.size());
+        tri.reserve(sc.tris.size());
+        for (auto& nd : nodes) {
+            if (nd.prim < 0) continue;
+            const Prim& p = prims[nd.prim];
+            if (p.kind == Prim::SPH) {
+                nd.prim = (int)sph.size();
+                sph.push_back(sc.spheres[p.idx]);
+            }
+            else {
+                nd.prim = ns + (int)tri.size();
+                tri.push_back(sc.tris[p.idx]);
+            }
+        }
+        sc.spheres.swap(sph);
+        sc.tris.swap(tri);
     }
 };

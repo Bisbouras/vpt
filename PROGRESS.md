@@ -20,7 +20,7 @@ Entry tags:
 | `out/build/x64-Release` (the VS build folder) still has a CMake cache from the project's old location, so it can't configure from here. The scripts use `out/build/cli-release`. Delete that folder's `CMakeCache.txt` and `CMakeFiles/` (save its old renders first if wanted), then rebuild in VS. | 2026-11-09 | Before VS builds are used |
 | `hero`'s statistical check only catches errors of about 5% or more (fireflies survive in its reference). Its code paths are covered more tightly by `cornellScatter`. | 2026-11-09 | Accepted limit |
 | CPU timings for `cornellScatter` and `hero` vary up to 10% between runs (P/E cores). Medians of 5 are used, and min/max are recorded. | 2026-11-09 | Keep in mind when reading small CPU changes |
-| Benchmarks owed, to run interleaved when the machine is idle: 2.3 (`0722b41.exe` vs `a0cef85.exe`), 2.4 (`2.4.exe` vs `0722b41.exe`), and optionally 2.1 vs Phase 1 to replace the withdrawn order-biased result. | 2026-11-12 | Before the Phase 2 writeup |
+| Benchmarks owed, to run interleaved when the machine is idle: 2.3 (`0722b41.exe` vs `a0cef85.exe`), 2.4 (`c6fd115.exe` vs `0722b41.exe`), 2.5 (`2.5.exe` vs `c6fd115.exe`), and optionally 2.1 vs Phase 1 to replace the withdrawn order-biased result. | 2026-11-12 | Before the Phase 2 writeup |
 
 ## Bug register
 
@@ -177,3 +177,11 @@ Exact baseline for steps 2.1–2.7: `out/check/phase1` (git-ignored), saved from
 - **Result:** exact check 8/8 byte-identical. Device compile clean, and **host calls fell from 15 to 2**: only `std::mt19937` / `uniform_real_distribution` remain, and 2.8 removes them. `tests/devcheck.cu` now passes `SceneView` by value as a kernel argument, the way Phase 3 will.
 - Benchmark pending (machine busy). The build is kept as `out/check/bin/2.4.exe`.
 - **Harness:** when starting 2.5, the 2.4 build was renamed to `<HEAD>.exe` without first checking that 2.4 had been committed. HEAD was still 2.3, so this overwrote the kept 2.3 build. The 2.3 build was rebuilt from `0722b41` with `git archive` (exact check 8/8). Builds are now renamed only after confirming HEAD has moved.
+- Committed as `c6fd115`.
+
+### 2.5 — BVH leaves index primitives directly (2026-11-12)
+
+- **Finding:** `Prim` was an identity mapping. `BVH::build` adds every sphere and then every triangle in input order, so `prims[i]` was always (sphere `i`) or (triangle `i − numSpheres`). Traversal paid an extra 32-byte load per leaf for nothing.
+- New `BVH::reorder(scene)`, called right after `build`, rewrites `scene.spheres` and `scene.tris` into leaf order (the nodes are stored depth-first, so neighbouring leaves now hit neighbouring primitives in memory). Each leaf's `prim` then indexes them directly: values below `numSpheres` are spheres, the rest are triangles after them. `traceBVH` reads `spheres[prim]` / `tris[prim − numSpheres]`. `Prim` is now build-only, and `SceneView` no longer has `prims`. The node layout is unchanged (layout work is Phase 4).
+- **Result:** exact check 8/8 byte-identical. No hit-distance ties changed which primitive wins, so the possible exception noted in the plan didn't occur. Device compile clean, still 2 host calls (RNG only). The reorder adds no measurable BVH build time (dragon ~73 ms both before and after, 3 runs each).
+- Benchmark pending. The build is kept as `out/check/bin/2.5.exe`. The leaf-order memory layout is the part most likely to show up in timing, on dragon.
