@@ -871,8 +871,18 @@ HD inline vec3 pathTrace(const Ray& primary, const SceneView& sc, std::mt19937& 
     return L;
 }
 
-// accum gets the linear colour before clamp and gamma, pixels the 8-bit output
-inline void render(const Scene& sc, const BVH& bvh, unsigned char* pixels, vec3* accum, bool quiet) {
+// renderPixel - radiance of sample s of pixel (x, y). sample 0 goes through the pixel centre
+HD inline vec3 renderPixel(const SceneView& sc, int x, int y, int s, std::mt19937& rng) {
+    std::uniform_real_distribution<float> U(0.0f, 1.0f);
+    float dx = (s == 0) ? 0.5f : U(rng);
+    float dy = (s == 0) ? 0.5f : U(rng);
+    Ray pr = makeRay(x + dx, y + dy, sc);
+    return pathTrace(pr, sc, rng);
+}
+
+// adds each pixel's samples into sum (zeroed by the caller), returns the samples per pixel
+// (spp for the path tracer, 1 for the other integrators). outputPass turns sum into images
+inline int render(const Scene& sc, const BVH& bvh, vec3* sum, bool quiet) {
     const SceneView v = makeView(sc, bvh);
     int total = sc.w * sc.h;
     std::atomic<int> done(0);
@@ -882,25 +892,19 @@ inline void render(const Scene& sc, const BVH& bvh, unsigned char* pixels, vec3*
     #pragma omp parallel for schedule(dynamic, 1)
     for (int j = 0; j < sc.h; j++) {
         for (int i = 0; i < sc.w; i++) {
-            Ray ray = makeRay(i + 0.5f, j + 0.5f, v);
-            vec3 col(0);
+            int p = j * sc.w + i;
 
             if (sc.integrator == PATHTRACER) {
-                std::mt19937 rng(seedBase + (unsigned)(j * sc.w + i));
-                std::uniform_real_distribution<float> U(0.0f, 1.0f);
-                vec3 acc(0);
-                for (int s = 0; s < sc.spp; s++) {
-                    // first sample at pixel center for spp=1 backward compat
-                    float dx = (s == 0) ? 0.5f : U(rng);
-                    float dy = (s == 0) ? 0.5f : U(rng);
-                    Ray pr = makeRay(i + dx, j + dy, v);
-                    acc += pathTrace(pr, v, rng);
-                }
-                col = acc / (float)sc.spp;
+                std::mt19937 rng(seedBase + (unsigned)p);
+                for (int s = 0; s < sc.spp; s++)
+                    sum[p] += renderPixel(v, i, j, s, rng);
             }
             else if (sc.integrator == RAYTRACER) {
-                col = trace(ray, v, sc.maxdepth);
+                Ray ray = makeRay(i + 0.5f, j + 0.5f, v);
+                sum[p] = trace(ray, v, sc.maxdepth);
             } else {
+                Ray ray = makeRay(i + 0.5f, j + 0.5f, v);
+                vec3 col(0);
                 // check quad light visibility (primary ray only)
                 float tq = FLT_MAX;
                 int qhit = -1;
@@ -920,27 +924,12 @@ inline void render(const Scene& sc, const BVH& bvh, unsigned char* pixels, vec3*
                     if (sc.integrator == ANALYTICDIRECT) {
                         col = shadeAnalytic(h, v);
                     } else {
-                        std::mt19937 rng(seedBase + (unsigned)(j * sc.w + i));
+                        std::mt19937 rng(seedBase + (unsigned)p);
                         col = shadeDirect(h, ray, v, rng);
                     }
                 }
+                sum[p] = col;
             }
-
-            accum[j * sc.w + i] = col;
-            col = glm::clamp(col, 0.0f, 1.0f);
-
-            // gamma correction at output time only (default gamma = 1 is a no-op)
-            if (sc.gamma != 1.0f) {
-                float inv = 1.0f / sc.gamma;
-                col.r = powf(col.r, inv);
-                col.g = powf(col.g, inv);
-                col.b = powf(col.b, inv);
-            }
-
-            int idx = (j * sc.w + i) * 3;
-            pixels[idx] = (unsigned char)(col.r * 255);
-            pixels[idx + 1] = (unsigned char)(col.g * 255);
-            pixels[idx + 2] = (unsigned char)(col.b * 255);
 
             int d = ++done;
             if (quiet) continue;
@@ -950,4 +939,5 @@ inline void render(const Scene& sc, const BVH& bvh, unsigned char* pixels, vec3*
         }
     }
     if (!quiet) std::cout << "\r100%" << std::endl;
+    return sc.integrator == PATHTRACER ? sc.spp : 1;
 }

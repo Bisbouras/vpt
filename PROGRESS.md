@@ -20,7 +20,7 @@ Entry tags:
 | `out/build/x64-Release` (the VS build folder) still has a CMake cache from the project's old location, so it can't configure from here. The scripts use `out/build/cli-release`. Delete that folder's `CMakeCache.txt` and `CMakeFiles/` (save its old renders first if wanted), then rebuild in VS. | 2026-11-09 | Before VS builds are used |
 | `hero`'s statistical check only catches errors of about 5% or more (fireflies survive in its reference). Its code paths are covered more tightly by `cornellScatter`. | 2026-11-09 | Accepted limit |
 | CPU timings for `cornellScatter` and `hero` vary up to 10% between runs (P/E cores). Medians of 5 are used, and min/max are recorded. | 2026-11-09 | Keep in mind when reading small CPU changes |
-| Benchmarks owed, to run interleaved when the machine is idle: 2.3 (`0722b41.exe` vs `a0cef85.exe`), 2.4 (`c6fd115.exe` vs `0722b41.exe`), 2.5 (`a110fc0.exe` vs `c6fd115.exe`), 2.6 (`2.6.exe` vs `a110fc0.exe`), and optionally 2.1 vs Phase 1 to replace the withdrawn order-biased result. | 2026-11-12 | Before the Phase 2 writeup |
+| Benchmarks owed, to run interleaved when the machine is idle: 2.3 (`0722b41.exe` vs `a0cef85.exe`), 2.4 (`c6fd115.exe` vs `0722b41.exe`), 2.5 (`a110fc0.exe` vs `c6fd115.exe`), 2.6 (`7fcc5c0.exe` vs `a110fc0.exe`), 2.7 (`2.7.exe` vs `7fcc5c0.exe`), and optionally 2.1 vs Phase 1 to replace the withdrawn order-biased result. | 2026-11-12 | Before the Phase 2 writeup |
 
 ## Bug register
 
@@ -194,3 +194,13 @@ Exact baseline for steps 2.1–2.7: `out/check/phase1` (git-ignored), saved from
 - **Fix:** new `safeInv` in `BVH.h`: `1/x`, with `|x| < 1e-20` nudged to `±1e-20`. `traceBVH` builds the inverse direction with it, so it's always finite and `AABB::hit` can't produce NaN. In the test above, both argument orders then agree (hit). **B2 fixed.**
 - **Result:** exact check 8/8 byte-identical (expected, given 0 NaNs before). Device compile clean, still 2 host calls (RNG only).
 - Benchmark pending. The build is kept as `out/check/bin/2.6.exe`.
+- Committed as `7fcc5c0`.
+
+### 2.7 — `renderPixel` and output pass (2026-11-12)
+
+- New `renderPixel(sc, x, y, s, rng)` (`HD`): the radiance of one sample, with sample 0 through the pixel centre. Until 2.8 it still takes the pixel's mt19937, because sample *s* depends on the numbers earlier samples drew. 2.8 drops that parameter.
+- `render()` now only adds samples into a per-pixel `sum` buffer (zeroed by the caller), in the same order as before (s = 0..spp−1). It returns the samples per pixel: spp for the path tracer, 1 for the other integrators, which store their single value. The camera ray at the pixel centre is now only computed by the integrators that use it.
+- New `outputPass()` in `Image.h`: `sum / n` → linear average (written as the PFM) → clamp → gamma → truncate to 8 bits, exactly the old per-pixel code. It divides (`vec3 / float`), as before, rather than multiplying by `1/n`, which could change the last bit. `render_ms` no longer includes this pass, which is a trivial loop.
+- **Result:** exact check 8/8 byte-identical. Device compile clean, still 2 host calls (RNG). `tests/devcheck.cu` now calls `renderPixel`, the function Phase 3's kernel will call.
+- **Result:** the 8 check scenes all use the path tracer, but 2.7 also touched the Whitted, analytic-direct and direct branches. Scratch copies of `cornellBRDF` switched to `raytracer`, `analyticdirect` and `direct` (plus a point light, a directional light and 4 stratified light samples) give byte-identical PNG and PFM on `7fcc5c0` and 2.7.
+- Benchmark pending. The build is kept as `out/check/bin/2.7.exe`.

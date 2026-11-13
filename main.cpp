@@ -101,11 +101,14 @@ int main(int argc, char* argv[]) {
     std::cout << "BVH: " << bvh.nodes.size() << " nodes, "
               << bvh.prims.size() << " prims" << std::endl;
 
-    std::vector<unsigned char> pixels(scene.w * scene.h * 3, 0);
-    std::vector<vec3> accum(scene.w * scene.h, vec3(0));
+    std::vector<vec3> sum(scene.w * scene.h, vec3(0));
     t0 = std::chrono::steady_clock::now();
-    render(scene, bvh, pixels.data(), accum.data(), quiet);
+    int n = render(scene, bvh, sum.data(), quiet);
     double renderMs = msSince(t0);
+
+    std::vector<vec3> avg(scene.w * scene.h);
+    std::vector<unsigned char> pixels(scene.w * scene.h * 3);
+    outputPass(sum.data(), n, scene.w, scene.h, scene.gamma, avg.data(), pixels.data());
 
     // timing - one line for scripts/bench.py
     double msamples = (double)scene.w * scene.h * scene.spp / (renderMs / 1000.0) / 1e6;
@@ -122,7 +125,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     std::string pfm = pfmPath(scene.outfile);
-    if (!writePFM(pfm, scene.w, scene.h, accum.data())) {
+    if (!writePFM(pfm, scene.w, scene.h, avg.data())) {
         std::cerr << "cant write " << pfm << std::endl;
         return 1;
     }
