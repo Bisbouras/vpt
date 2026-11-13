@@ -2,7 +2,7 @@
 
 Working plan for porting the VPT path tracer to CUDA: what the code looks like today, the design decisions, each phase's tasks, how each step is checked, and the risks. What actually happened (bugs found, plan changes, results) is logged in `PROGRESS.md`.
 
-Status: **Phase 1 done (2026-11-09): harness, references, validated statistical check, CPU timings (section 8). Phase 2 in progress: 2.1–2.7 done 2026-11-12 (2.3–2.7 benchmarks pending). Next: 2.8 (RNG).** Phases run one at a time, with a review before each.
+Status: **Phase 1 done (2026-11-09): harness, references, validated statistical check, CPU timings (section 8). Phase 2 in progress: 2.1–2.8 done 2026-11-12 (2.3–2.8 benchmarks pending). Next: 2.9 (bounce cap). Exact baseline from 2.9 on: `out/check/phase2-pcg`.** Phases run one at a time, with a review before each.
 
 ---
 
@@ -184,7 +184,7 @@ Each step: change, rebuild, run the check, compile the shared headers with nvcc 
 | 2.5 | **BVH reorder:** after the build, reorder the prims so leaves index them directly. Split spheres and triangles into one prim list with a type bit packed into the leaf, or two leaf kinds; decide while doing it. Remove `Prim` from traversal. The node layout stays the same for now (layout changes are Phase 4 and get measured). | [exact]\* |
 | 2.6 | **Ray–box NaN:** make `AABB::hit` safe for axis-aligned rays (replace exact-zero direction components with a tiny signed value before inverting, so 0 × inf can't happen). | [exact] or [stat]\*\* |
 | 2.7 | **Per-pixel function:** `renderPixel(const SceneView&, int x, int y, int s)` returns one sample's radiance. The caller adds it into the float accumulation buffer. Clamp/gamma/8-bit becomes `outputPass()`. The sum order per pixel stays `s = 0..spp-1`. The Whitted, analytic and direct integrators keep their own path in `render()`. | [exact] |
-| 2.8 | **RNG:** stateless PCG. State = `{pixel, sample, dim}`. `next()` returns `pcgHash(pixel, sample, dim++)` turned into `[0,1)` (top 24 bits × 2⁻²⁴). Keep the "sample 0 at pixel centre" rule. Replaces every `std::mt19937`/`uniform_real_distribution` on the path tracer's path. The direct integrator can keep mt19937 (CPU only). | [stat] |
+| 2.8 | **RNG:** stateless PCG. State = `{pixel, sample, dim}`. `next()` returns `pcgHash(pixel, sample, dim++)` turned into `[0,1)` (top 24 bits × 2⁻²⁴). Keep the "sample 0 at pixel centre" rule. Replaces every `std::mt19937`/`uniform_real_distribution` on the path tracer's path. The direct integrator uses it too (C13). | [stat] |
 | 2.9 | **Bounce cap (D5)**, if agreed. | [exact] (expected) |
 
 \* Exact unless two prims hit at the exact same `t`, where the visit order picks the winner. Any such pixels get investigated, not waved through.

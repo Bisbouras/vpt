@@ -105,7 +105,7 @@ struct Scene {
     bool russianroulette = false;
     ImportanceSampling importancesampling = HEMISPHERE;
     float gamma = 1.0f;
-    unsigned seed = 0;   // rng - added to per-pixel seed as seed * w * h, 0 keeps the original images
+    unsigned seed = 0;   // rng - first input of the pcg hash, see Rng.h
 
     Medium globalMedium;
 };

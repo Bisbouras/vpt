@@ -6,7 +6,7 @@
 #include <cmath>
 #include <cfloat>
 #include <glm/gtc/constants.hpp>
-#include <random>
+#include "Rng.h"
 #include <atomic>
 #include <iostream>
 
@@ -247,12 +247,11 @@ HD inline vec3 evalBRDF(const Material& m, const vec3& wi, const vec3& wo, const
 
 // monte carlo direct lighting with optional stratified sampling
 HD inline vec3 shadeDirect(const Hit& h, const Ray& ray, const SceneView& sc,
-                 std::mt19937& rng) {
+                 Rng& rng) {
     const Material& hm = sc.materials[h.matId];
     vec3 col = hm.emission;
     vec3 n = glm::normalize(h.norm);
     vec3 wo = glm::normalize(ray.origin - h.pos);
-    std::uniform_real_distribution<float> U(0.0f, 1.0f);
 
     for (int qi = 0; qi < sc.numQuadLights; qi++) {
         const QuadLight& q = sc.quadLights[qi];
@@ -274,11 +273,11 @@ HD inline vec3 shadeDirect(const Hit& h, const Ray& ray, const SceneView& sc,
             if (sc.lightstratify) {
                 int j = k / root;
                 int i = k % root;
-                u1 = (j + U(rng)) / root;
-                u2 = (i + U(rng)) / root;
+                u1 = (j + rng.next()) / root;
+                u2 = (i + rng.next()) / root;
             } else {
-                u1 = U(rng);
-                u2 = U(rng);
+                u1 = rng.next();
+                u2 = rng.next();
             }
             vec3 xp = q.a + u1 * q.ab + u2 * q.ac;
 
@@ -549,12 +548,11 @@ HD inline float pdfNEE(const vec3& pos, const vec3& wi, const SceneView& sc) {
 // multi-sample mis direct lighting with power heuristic (beta = 2).
 // uses one nee sample per light plus one brdf sample. caller adds the hit material's emission.
 HD inline vec3 shadeMIS(const Hit& h, const Ray& ray, const SceneView& sc,
-              std::mt19937& rng) {
+              Rng& rng) {
     const Material& hm = sc.materials[h.matId];
     vec3 col(0);
     vec3 n = glm::normalize(h.norm);
     vec3 wo = glm::normalize(ray.origin - h.pos);
-    std::uniform_real_distribution<float> U(0.0f, 1.0f);
     int nlights = sc.numQuadLights;
 
     // nee technique: one sample per light, weighted by w_nee
@@ -565,7 +563,7 @@ HD inline vec3 shadeMIS(const Hit& h, const Ray& ray, const SceneView& sc,
         if (A < 1e-8f) continue;
         vec3 nl = abxac / A;
 
-        float u1 = U(rng), u2 = U(rng);
+        float u1 = rng.next(), u2 = rng.next();
         vec3 xp = q.a + u1 * q.ab + u2 * q.ac;
         vec3 toL = xp - h.pos;
         float R = glm::length(toL);
@@ -590,7 +588,7 @@ HD inline vec3 shadeMIS(const Hit& h, const Ray& ray, const SceneView& sc,
     }
 
     // brdf technique: one sample, weighted by w_brdf
-    float xi0 = U(rng), xi1 = U(rng), xi2 = U(rng);
+    float xi0 = rng.next(), xi1 = rng.next(), xi2 = rng.next();
     vec3 wi = sampleBRDFDir(hm, wo, n, xi0, xi1, xi2);
     float ndotwi = glm::dot(n, wi);
     if (ndotwi > 0) {
@@ -632,9 +630,8 @@ HD inline float hgPhase(float cosTheta, float g) {
 // sample a new direction from HG given the incoming direction wo (points back to last vertex).
 // cosTheta is the angle between the new direction and the ray's forward direction (-wo).
 // returns the new direction and sets pdf to the HG value at that direction.
-HD inline vec3 sampleHG(const vec3& wo, float g, std::mt19937& rng, float& pdf) {
-    std::uniform_real_distribution<float> U(0.0f, 1.0f);
-    float xi1 = U(rng), xi2 = U(rng);
+HD inline vec3 sampleHG(const vec3& wo, float g, Rng& rng, float& pdf) {
+    float xi1 = rng.next(), xi2 = rng.next();
     float cosTheta;
     if (fabsf(g) < 1e-3f) {
         cosTheta = 1.0f - 2.0f * xi1;
@@ -660,9 +657,8 @@ HD inline vec3 sampleHG(const vec3& wo, float g, std::mt19937& rng, float& pdf) 
 // same structure as shadeMIS but with the phase function in place of the BRDF and
 // no surface normal / cosine factor.
 HD inline vec3 shadeMISVolume(const vec3& p, const vec3& wo, const SceneView& sc,
-                    std::mt19937& rng) {
+                    Rng& rng) {
     vec3 col(0);
-    std::uniform_real_distribution<float> U(0.0f, 1.0f);
     int nlights = sc.numQuadLights;
     float g = sc.globalMedium.g;
 
@@ -674,7 +670,7 @@ HD inline vec3 shadeMISVolume(const vec3& p, const vec3& wo, const SceneView& sc
         if (A < 1e-8f) continue;
         vec3 nl = abxac / A;
 
-        float u1 = U(rng), u2 = U(rng);
+        float u1 = rng.next(), u2 = rng.next();
         vec3 xp = q.a + u1 * q.ab + u2 * q.ac;
         vec3 toL = xp - p;
         float R = glm::length(toL);
@@ -727,8 +723,7 @@ HD inline vec3 shadeMISVolume(const vec3& p, const vec3& wo, const SceneView& sc
 
 // iterative path tracer with optional NEE/MIS, brdf importance sampling, and russian roulette.
 // maxdepth < 0 means unbounded (only RR can terminate).
-HD inline vec3 pathTrace(const Ray& primary, const SceneView& sc, std::mt19937& rng) {
-    std::uniform_real_distribution<float> U(0.0f, 1.0f);
+HD inline vec3 pathTrace(const Ray& primary, const SceneView& sc, Rng& rng) {
     vec3 L(0);
     vec3 T(1);
     Ray ray = primary;
@@ -751,7 +746,7 @@ HD inline vec3 pathTrace(const Ray& primary, const SceneView& sc, std::mt19937& 
 
         if (hasScattering) {
             // free-flight sampling. tSample ~ exp(sigma_t_s)
-            float xi = U(rng);
+            float xi = rng.next();
             float tSample = -logf(1.0f - xi) / sigma_t_s;
             if (tSample < h.t) {
                 // scatter event inside the medium at scatterPos
@@ -774,7 +769,7 @@ HD inline vec3 pathTrace(const Ray& primary, const SceneView& sc, std::mt19937& 
                 if (sc.russianroulette) {
                     float maxC = glm::max(glm::max(T.r, T.g), T.b);
                     float q = 1.0f - glm::min(maxC, 1.0f);
-                    if (U(rng) < q) break;
+                    if (rng.next() < q) break;
                     T /= (1.0f - q);
                 }
 
@@ -826,7 +821,7 @@ HD inline vec3 pathTrace(const Ray& primary, const SceneView& sc, std::mt19937& 
         if (sc.russianroulette) {
             float maxC = glm::max(glm::max(T.r, T.g), T.b);
             float q = 1.0f - glm::min(maxC, 1.0f);
-            if (U(rng) < q) break;
+            if (rng.next() < q) break;
             T /= (1.0f - q);
         }
 
@@ -834,11 +829,11 @@ HD inline vec3 pathTrace(const Ray& primary, const SceneView& sc, std::mt19937& 
         vec3 wi;
         float pdfval;
         if (sc.importancesampling == BRDF) {
-            float xi0 = U(rng), xi1 = U(rng), xi2 = U(rng);
+            float xi0 = rng.next(), xi1 = rng.next(), xi2 = rng.next();
             wi = sampleBRDFDir(hm, wo, n, xi0, xi1, xi2);
             pdfval = pdfBRDFDir(hm, wi, wo, n);
         } else {
-            float xi1 = U(rng), xi2 = U(rng);
+            float xi1 = rng.next(), xi2 = rng.next();
             float theta = (sc.importancesampling == COSINE) ? acosf(sqrtf(xi1)) : acosf(xi1);
             float phi = 2.0f * glm::pi<float>() * xi2;
             vec3 s(cosf(phi) * sinf(theta), sinf(phi) * sinf(theta), cosf(theta));
@@ -872,10 +867,10 @@ HD inline vec3 pathTrace(const Ray& primary, const SceneView& sc, std::mt19937& 
 }
 
 // renderPixel - radiance of sample s of pixel (x, y). sample 0 goes through the pixel centre
-HD inline vec3 renderPixel(const SceneView& sc, int x, int y, int s, std::mt19937& rng) {
-    std::uniform_real_distribution<float> U(0.0f, 1.0f);
-    float dx = (s == 0) ? 0.5f : U(rng);
-    float dy = (s == 0) ? 0.5f : U(rng);
+HD inline vec3 renderPixel(const SceneView& sc, int x, int y, int s) {
+    Rng rng(sc.seed, (uint32_t)(y * sc.w + x), (uint32_t)s);
+    float dx = (s == 0) ? 0.5f : rng.next();
+    float dy = (s == 0) ? 0.5f : rng.next();
     Ray pr = makeRay(x + dx, y + dy, sc);
     return pathTrace(pr, sc, rng);
 }
@@ -886,8 +881,6 @@ inline int render(const Scene& sc, const BVH& bvh, vec3* sum, bool quiet) {
     const SceneView v = makeView(sc, bvh);
     int total = sc.w * sc.h;
     std::atomic<int> done(0);
-    // seed - per-pixel seeds of different seed values never overlap
-    unsigned seedBase = sc.seed * (unsigned)total;
 
     #pragma omp parallel for schedule(dynamic, 1)
     for (int j = 0; j < sc.h; j++) {
@@ -895,9 +888,8 @@ inline int render(const Scene& sc, const BVH& bvh, vec3* sum, bool quiet) {
             int p = j * sc.w + i;
 
             if (sc.integrator == PATHTRACER) {
-                std::mt19937 rng(seedBase + (unsigned)p);
                 for (int s = 0; s < sc.spp; s++)
-                    sum[p] += renderPixel(v, i, j, s, rng);
+                    sum[p] += renderPixel(v, i, j, s);
             }
             else if (sc.integrator == RAYTRACER) {
                 Ray ray = makeRay(i + 0.5f, j + 0.5f, v);
@@ -924,7 +916,7 @@ inline int render(const Scene& sc, const BVH& bvh, vec3* sum, bool quiet) {
                     if (sc.integrator == ANALYTICDIRECT) {
                         col = shadeAnalytic(h, v);
                     } else {
-                        std::mt19937 rng(seedBase + (unsigned)p);
+                        Rng rng(sc.seed, (uint32_t)p, 0u);
                         col = shadeDirect(h, ray, v, rng);
                     }
                 }

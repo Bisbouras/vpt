@@ -18,9 +18,9 @@ Entry tags:
 |---|---|---|
 | `ncu` can't read GPU performance counters (`ERR_NVGPUCTRPERM`). Enable "Allow access to all users" under NVIDIA Control Panel → Developer → Manage GPU Performance Counters, or run `ncu` as admin. | 2026-11-09 | Phase 4 |
 | `out/build/x64-Release` (the VS build folder) still has a CMake cache from the project's old location, so it can't configure from here. The scripts use `out/build/cli-release`. Delete that folder's `CMakeCache.txt` and `CMakeFiles/` (save its old renders first if wanted), then rebuild in VS. | 2026-11-09 | Before VS builds are used |
-| `hero`'s statistical check only catches errors of about 5% or more (fireflies survive in its reference). Its code paths are covered more tightly by `cornellScatter`. | 2026-11-09 | Accepted limit |
+| `hero`'s statistical check only catches errors of about 5% or more (fireflies survive in its reference). Its code paths are covered more tightly by `cornellScatter`. Since the PCG floor (2.8), `cornellCosine` catches about 2% overall and 10% in one quarter (was 1% and 5%). | 2026-11-09 | Accepted limit |
 | CPU timings for `cornellScatter` and `hero` vary up to 10% between runs (P/E cores). Medians of 5 are used, and min/max are recorded. | 2026-11-09 | Keep in mind when reading small CPU changes |
-| Benchmarks owed, to run interleaved when the machine is idle: 2.3 (`0722b41.exe` vs `a0cef85.exe`), 2.4 (`c6fd115.exe` vs `0722b41.exe`), 2.5 (`a110fc0.exe` vs `c6fd115.exe`), 2.6 (`7fcc5c0.exe` vs `a110fc0.exe`), 2.7 (`2.7.exe` vs `7fcc5c0.exe`), and optionally 2.1 vs Phase 1 to replace the withdrawn order-biased result. | 2026-11-12 | Before the Phase 2 writeup |
+| Benchmarks owed, to run interleaved when the machine is idle: 2.3 (`0722b41.exe` vs `a0cef85.exe`), 2.4 (`c6fd115.exe` vs `0722b41.exe`), 2.5 (`a110fc0.exe` vs `c6fd115.exe`), 2.6 (`7fcc5c0.exe` vs `a110fc0.exe`), 2.7 (`b683983.exe` vs `7fcc5c0.exe`), 2.8 (`2.8.exe` vs `b683983.exe`), and optionally 2.1 vs Phase 1 to replace the withdrawn order-biased result. | 2026-11-12 | Before the Phase 2 writeup |
 
 ## Bug register
 
@@ -46,6 +46,7 @@ Entry tags:
 | C9 | Noise floor re-measured with the new RNG after 2.8 (references unchanged) | The GPU uses the same PCG sampler, so it should be compared against a floor from that sampler | 2026-11-12 |
 | C10 | Phase 2 is committed one step at a time (Phase 1 was one commit) | Clean checkpoints that are easy to bisect if the GPU port finds a problem | 2026-11-12 |
 | C11 | Every speed comparison is a same-session A/B: the previous build is benchmarked right before or after the new one. The final CPU column of the timing table gets re-measured in the same session as the GPU numbers. | The identical Phase 1 code ran 6–10% faster on 2026-11-12 than on 2026-11-09, more than most single changes will gain | 2026-11-12 |
+| C13 | The CPU-only direct integrator uses the new `Rng` too (the plan said it could keep mt19937) | It shares `shadeDirect` with the path tracer's NEE-on mode, and keeping mt19937 would have meant two copies. Its output is statistically unchanged | 2026-11-12 |
 | C12 | A/B runs are **interleaved** per scene (`bench.py --base`), not one build after the other. Amends C11. | Running back to back favours the first build by up to 3% as the machine heats up (2.2) | 2026-11-12 |
 
 ---
@@ -204,3 +205,16 @@ Exact baseline for steps 2.1–2.7: `out/check/phase1` (git-ignored), saved from
 - **Result:** exact check 8/8 byte-identical. Device compile clean, still 2 host calls (RNG). `tests/devcheck.cu` now calls `renderPixel`, the function Phase 3's kernel will call.
 - **Result:** the 8 check scenes all use the path tracer, but 2.7 also touched the Whitted, analytic-direct and direct branches. Scratch copies of `cornellBRDF` switched to `raytracer`, `analyticdirect` and `direct` (plus a point light, a directional light and 4 stratified light samples) give byte-identical PNG and PFM on `7fcc5c0` and 2.7.
 - Benchmark pending. The build is kept as `out/check/bin/2.7.exe`.
+- Committed as `b683983`.
+
+### 2.8 — stateless RNG (2026-11-12)
+
+- New `Rng.h`: `pcgHash` (one PCG step plus its RXS-M-XS output permutation, after Jarzynski & Olano 2020) and `Rng`, whose numbers depend only on (seed, pixel, sample, dimension). `key = hash(sample + hash(pixel + hash(seed)))`, and `next()` returns the top 24 bits of `hash(key ^ dim·0x9e3779b9)` scaled to [0, 1). Spreading `dim` by the golden ratio before the XOR means two samples whose keys happen to be close can't produce shifted copies of the same sequence, as `key + dim` could.
+- `std::mt19937`, `uniform_real_distribution` and `<random>` are gone from `Raytracer.h`. `renderPixel(sc, x, y, s)` builds its own `Rng` from `sc.seed`, the pixel index and `s`, so sample *s* no longer depends on what earlier samples drew. That's what lets Phase 3 run one launch per sample. Sample 0 still goes through the pixel centre. `SceneView` carries `seed`.
+- **Plan change (C13):** the CPU-only direct integrator also uses `Rng`. The plan let it keep mt19937, but it shares `shadeDirect` with the path tracer's NEE-on mode, and keeping both would have meant two copies of `shadeDirect`. Its images change statistically only: on a scratch direct-lighting scene with 64 light samples, PCG vs mt19937 gives relMSE 0.000365 and bias +0.011%, the same as mt19937 against itself with another seed (0.000366, −0.001%).
+- **Result:** `devcheck.py --strict` passes with **no diagnostics at all**. The whole path tracer compiles for the GPU with no host calls (14 at 2.1, 15 at 2.3, 2 at 2.4).
+- **Result:** statistical check against the references and the mt19937 noise floor: **8/8 pass, every z-score within ±2**.
+- **Result (C9):** noise floor re-measured with PCG (16 seeds × 8 scenes), with the mt19937 floor kept as `refs/floor_mt19937.json`. A Welch t-test on each scene and metric (16 + 16 samples) finds no difference: largest |t| is 2.72 over 32 comparisons, under the ~3.0 that chance alone allows (Bonferroni, 5%). It's on `mis`'s bias, −0.0016% vs +0.0026%. `refs/floor.json` is now the PCG floor (also kept as `refs/floor_pcg.json`).
+- **Result:** check validation repeated against the PCG floor: **0 of 64** fresh-seed renders fail. Detection matches the mt19937 floor except `cornellCosine`: its bias spread came out slightly wider (0.25% vs 0.21%), so ×1.01 overall and ×1.05 in one quarter now pass, while ×1.02, ×0.98, ×1.05 overall and ×1.10 in a quarter are still caught. `hero` is as before (×0.98 and ×1.05 overall only).
+- New exact baseline `out/check/phase2-pcg` for 2.9 onwards, since every image changes at this step. It reproduces itself 8/8.
+- Benchmark pending. The build is kept as `out/check/bin/2.8.exe`. PCG vs mt19937 on the CPU is a speed result worth having.

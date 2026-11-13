@@ -32,6 +32,7 @@ struct SceneView {
     bool russianroulette;
     ImportanceSampling importancesampling;
     Medium globalMedium;
+    unsigned seed;
 };
 
 inline SceneView makeView(const Scene& sc, const BVH& bvh) {
@@ -60,5 +61,6 @@ inline SceneView makeView(const Scene& sc, const BVH& bvh) {
     v.russianroulette = sc.russianroulette;
     v.importancesampling = sc.importancesampling;
     v.globalMedium = sc.globalMedium;
+    v.seed = sc.seed;
     return v;
 }

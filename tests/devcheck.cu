@@ -2,6 +2,6 @@
 #include "Raytracer.h"
 
 // devcheck - one call into renderPixel pulls in every function the path tracer reaches
-__global__ void devcheck(SceneView sc, std::mt19937* rng, vec3* out) {
-    out[0] += renderPixel(sc, 0, 0, 1, *rng);
+__global__ void devcheck(SceneView sc, vec3* out) {
+    out[0] += renderPixel(sc, 0, 0, 1);
 }
